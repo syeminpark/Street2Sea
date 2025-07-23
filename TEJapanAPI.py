@@ -3,9 +3,8 @@ import os
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 
-# Load FTP credentials from .env
+# Load credentials and set default paths
 load_dotenv()
-
 FTP_HOST = "ftp.eorc.jaxa.jp"
 FTP_USER = os.getenv("FTP_USER")
 FTP_PASS = os.getenv("FTP_PASS")
@@ -13,57 +12,52 @@ BASE_DIR = "/TE-japan/MSM/hourly"
 OUTPUT_DIR = os.getenv("TEJAPAN_DATA_DIR")
 MAX_LOOKBACK_HOURS = 24
 
-# Create output directory
-os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Connect to FTP
-ftp = FTP(FTP_HOST)
-ftp.login(FTP_USER, FTP_PASS)
-print(f"Connected to: {FTP_HOST}")
+def connect_ftp():
+    ftp = FTP(FTP_HOST)
+    ftp.login(FTP_USER, FTP_PASS)
+    print(f"✅ Connected to: {FTP_HOST}")
+    return ftp
 
-# Try to find data for up to 24 previous hours
-success = False
-for attempt in range(MAX_LOOKBACK_HOURS):
-    target_time = datetime.now() - timedelta(hours=attempt)
-    year = str(target_time.year)
-    month = f"{target_time.month:02d}"
-    day = f"{target_time.day:02d}"
-    hour = f"{target_time.hour:02d}"
-    
-    full_path = f"{BASE_DIR}/{year}/{month}/{day}/{hour}"
-    print(f"Trying: {full_path}")
-    
+
+def build_path_from_datetime(dt: datetime) -> str:
+    return f"{BASE_DIR}/{dt.year}/{dt.month:02d}/{dt.day:02d}/{dt.hour:02d}"
+
+
+def get_flood_files(ftp: FTP, full_path: str):
     try:
         ftp.cwd(full_path)
-        items = ftp.nlst()
-
-        # Filter only 15S files for FLDFRC and FLDDPH
-        files_15s_flood = [
-            item for item in items
-            if "15S" in item and ("FLDFRC" in item or "FLDDPH" in item)
+        files = ftp.nlst()
+        return [
+            f for f in files
+            if "15S" in f and ("FLDFRC" in f or "FLDDPH" in f)
         ]
+    except error_perm:
+        return []
 
-        if not files_15s_flood:
-            print(f"⚠️ No matching 15S flood files in {full_path}")
-            continue
 
-        print(f"\n✅ Found {len(files_15s_flood)} flood-related 15S file(s):")
-        for item in files_15s_flood:
-            print(f"Downloading: {item}")
-            local_path = os.path.join(OUTPUT_DIR, item)
-            with open(local_path, "wb") as f:
-                ftp.retrbinary(f"RETR {item}", f.write)
-            print(f"✅ Downloaded to: {local_path}")
-        
-        success = True
-        break  # Exit loop if download is successful
+def download_files(ftp: FTP, files, destination_dir):
+    os.makedirs(destination_dir, exist_ok=True)
+    for filename in files:
+        print(f"⬇️  Downloading: {filename}")
+        local_path = os.path.join(destination_dir, filename)
+        with open(local_path, "wb") as f:
+            ftp.retrbinary(f"RETR " + filename, f.write)
+        print(f"✅ Saved to: {local_path}")
 
-    except error_perm as e:
-        print(f"⛔ Directory not found or no access: {e}")
-        continue
 
-ftp.quit()
-print("FTP connection closed.")
-
-if not success:
-    print("\n⚠️ No flood-related 15S data found in the last 24 hours.")
+def find_and_download_flood_data(start_time: datetime):
+    ftp = connect_ftp()
+    for hour_back in range(MAX_LOOKBACK_HOURS):
+        dt = start_time - timedelta(hours=hour_back)
+        path = build_path_from_datetime(dt)
+        print(f"🔍 Checking: {path}")
+        files = get_flood_files(ftp, path)
+        if files:
+            print(f"✅ Found {len(files)} matching file(s) at {path}")
+            download_files(ftp, files, OUTPUT_DIR)
+            ftp.quit()
+            return dt  # return the matched datetime
+    ftp.quit()
+    print("⚠️ No matching flood data found within lookback window.")
+    return None
