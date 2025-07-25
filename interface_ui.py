@@ -69,6 +69,7 @@ class AddressFormUI(QWidget):
         # Address Line 2
         self.address2 = QLineEdit()
         rows.addRow("Address Line 2:", self.address2)
+        self.address2.setPlaceholderText("e.g. 27-2")
 
         fv.addLayout(rows)
         fv.addStretch(1)
@@ -93,8 +94,8 @@ class AddressFormUI(QWidget):
         # === Bottom row: image panels ===
         bottom = QHBoxLayout()
         for title, attr, desc in (
-            ("Street‑View",  "img1_label", "Displays the map location for the entered address."),
-            ("AI‑Generated", "img2_label", "Shows a street-level photo for evacuation."),
+            ("Street‑View",  "img1_label", "Displays the map google street view image for the entered address."),
+            ("AI‑Generated", "img2_label", "Shows an AI generated image based on predicted flood depth"),
         ):
             panel = QWidget()
             pv = QVBoxLayout(panel)

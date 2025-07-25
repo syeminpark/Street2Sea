@@ -1,21 +1,40 @@
-# interface.py
 import json
-from PyQt5.QtCore import QUrl, pyqtSignal, QByteArray
+from PyQt5.QtCore import QUrl, pyqtSignal, Qt
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtWidgets import QPushButton, QHBoxLayout, QLabel
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from interface_ui import AddressFormUI
 
 class AddressForm(AddressFormUI):
-
     data_submitted = pyqtSignal(dict)
 
     def __init__(self):
         super().__init__()
+
+        # image navigation state
+        self.street_images = []           # list of raw bytes
+        self.street_meta   = []           # list of metadata dicts
+        self.current_street_index = 0
 
         # connect signals
         self.postal.editingFinished.connect(self.lookup_postal)
         self.postal.textChanged.connect(self.update_submit_state)
         self.address2.textChanged.connect(self.update_submit_state)
         self.submit_btn.clicked.connect(self._on_submit)
+
+        # add Prev/Next buttons under Street‑View panel
+        nav_layout = QHBoxLayout()
+        self.prev_btn = QPushButton("Prev")
+        self.next_btn = QPushButton("Next")
+        self.prev_btn.setEnabled(False)
+        self.next_btn.setEnabled(False)
+        self.prev_btn.clicked.connect(self.show_prev_street_image)
+        self.next_btn.clicked.connect(self.show_next_street_image)
+        nav_layout.addWidget(self.prev_btn)
+        nav_layout.addWidget(self.next_btn)
+        parent_layout = self.img1_label.parentWidget().layout()
+        parent_layout.insertLayout(2, nav_layout)
+
 
         # postal lookup manager
         self.net = QNetworkAccessManager(self)
@@ -25,9 +44,6 @@ class AddressForm(AddressFormUI):
         self.update_submit_state()
 
     def update_submit_state(self):
-        """
-        Enable Submit only when both Postal Code and Address Line 2 are non‑empty.
-        """
         has_postal = bool(self.postal.text().strip())
         has_addr2  = bool(self.address2.text().strip())
         self.submit_btn.setEnabled(has_postal and has_addr2)
@@ -78,3 +94,52 @@ class AddressForm(AddressFormUI):
         }
         self.submit_btn.setEnabled(False)
         self.data_submitted.emit(payload)
+
+    def set_street_images(self, images, metadata):
+        """
+        Accepts:
+          images: list of raw bytes
+          metadata: list of dicts (e.g. {'heading':0}, ...)
+        """
+        self.street_images = images
+        self.street_meta   = metadata
+        self.current_street_index = 0
+        self._show_current_street()
+        self.prev_btn.setEnabled(False)
+        self.next_btn.setEnabled(len(images) > 1)
+
+    def _show_current_street(self):
+        img_bytes = self.street_images[self.current_street_index]
+        pix = QPixmap()
+        if pix.loadFromData(img_bytes):
+            self.img1_label.setPixmap(pix)
+            # show metadata
+            meta = self.street_meta[self.current_street_index]
+            meta_text = ", ".join(f"{k}: {v}" for k, v in meta.items())
+            idx = self.current_street_index + 1
+            total = len(self.street_images)
+            self.log.append(f"✔ Street‑View {idx}/{total} displayed ({meta_text}).")
+        else:
+            self.log.append("⚠ Failed to load Street‑View image data.")
+
+    def show_prev_street_image(self):
+        if self.current_street_index > 0:
+            self.current_street_index -= 1
+            self._show_current_street()
+        self.prev_btn.setEnabled(self.current_street_index > 0)
+        self.next_btn.setEnabled(self.current_street_index < len(self.street_images) - 1)
+
+    def show_next_street_image(self):
+        if self.current_street_index < len(self.street_images) - 1:
+            self.current_street_index += 1
+            self._show_current_street()
+        self.prev_btn.setEnabled(self.current_street_index > 0)
+        self.next_btn.setEnabled(self.current_street_index < len(self.street_images) - 1)
+
+    def display_ai_image(self, img_bytes: bytes):
+        pix = QPixmap()
+        if pix.loadFromData(img_bytes):
+            self.img2_label.setPixmap(pix)
+            self.log.append("✔ AI‑generated image displayed.")
+        else:
+            self.log.append("⚠ Failed to load AI‑generated image.")
