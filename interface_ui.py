@@ -23,8 +23,8 @@ class AddressFormUI(QWidget):
 
     def _build_ui(self):
         # window
-        self.setMinimumSize(800, 800)
-        self.setWindowTitle("SAFE: Street‑view AI Evacuation Demo")
+        self.setMinimumSize(1000, 1000)
+        self.setWindowTitle("SAFE: Street-view based AI Images from Forecast-simulations for Evacuation")
         root = QVBoxLayout(self)
 
         # === Top row: form + log ===
@@ -72,7 +72,16 @@ class AddressFormUI(QWidget):
         # Address Line 2
         self.address2 = QLineEdit()
         rows.addRow("Address Line 2:", self.address2)
-        self.address2.setPlaceholderText("e.g. 27-2")
+        self.address2.setPlaceholderText("e.g. 27-2 or Bear Pond Expresso")
+
+        self.postal.setMinimumWidth(300)
+        self.prefecture.setMinimumWidth(300)
+        self.city.setMinimumWidth(300)
+        self.town.setMinimumWidth(300)
+        self.prefecture_en.setMinimumWidth(300)
+        self.city_en.setMinimumWidth(300)
+        self.town_en.setMinimumWidth(300)
+        self.address2.setMinimumWidth(300)
 
                # Mode selection: Building vs Surrounding
         mode_layout = QHBoxLayout()
