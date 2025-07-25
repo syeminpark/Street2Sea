@@ -6,34 +6,13 @@ from dotenv import load_dotenv
 from streetview import search_panoramas, get_panorama_meta, get_streetview
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
+from constants import PerspectiveMode
 
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_STREET_VIEW_API_KEY")
 
-# Cache for panorama metadata to avoid duplicate requests
+# Cache for panorama metadata
 _meta_cache = {}
-
-def fetch_meta(pano_id: str):
-    """
-    Fetch panorama metadata with caching.
-    """
-    if pano_id not in _meta_cache:
-        _meta_cache[pano_id] = get_panorama_meta(pano_id=pano_id, api_key=GOOGLE_API_KEY)
-    return _meta_cache[pano_id]
-
-
-def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """
-    Calculate the great-circle distance (meters) between two points.
-    """
-    R = 6371000  # Earth radius in meters
-    φ1, φ2 = math.radians(lat1), math.radians(lat2)
-    dφ = math.radians(lat2 - lat1)
-    dλ = math.radians(lon2 - lon1)
-    a = math.sin(dφ/2)**2 + math.cos(φ1) * math.cos(φ2) * math.sin(dλ/2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c
-
 
 def addressToCoordinates(address: str) -> str:
     """
@@ -50,16 +29,80 @@ def addressToCoordinates(address: str) -> str:
     return f"{loc['lat']},{loc['lng']}"
 
 
-def _fetch_streetview_bytes(
-    pano_id: str,
-    width: int,
-    height: int,
-    heading: int,
-    pitch: int,
-    fov: int,
-) -> bytes:
+def fetch_meta(pano_id: str):
     """
-    Download a Street View image (PIL) and serialize to JPEG bytes.
+    Fetch panorama metadata with caching to avoid duplicate network calls.
+    """
+    if pano_id not in _meta_cache:
+        _meta_cache[pano_id] = get_panorama_meta(pano_id=pano_id, api_key=GOOGLE_API_KEY)
+    return _meta_cache[pano_id]
+
+
+def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculate great-circle distance in meters between two coordinates.
+    """
+    R = 6371000  # earth radius in meters
+    φ1, φ2 = math.radians(lat1), math.radians(lat2)
+    dφ = math.radians(lat2 - lat1)
+    dλ = math.radians(lon2 - lon1)
+    a = math.sin(dφ/2)**2 + math.cos(φ1)*math.cos(φ2)*math.sin(dλ/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
+
+def haversine_and_bearing(lat1: float, lon1: float, lat2: float, lon2: float):
+    """
+    Returns (distance_meters, bearing_degrees) from point1 to point2.
+    """
+    dist = haversine(lat1, lon1, lat2, lon2)
+    φ1, φ2 = math.radians(lat1), math.radians(lat2)
+    Δλ = math.radians(lon2 - lon1)
+    y = math.sin(Δλ) * math.cos(φ2)
+    x = math.cos(φ1)*math.sin(φ2) - math.sin(φ1)*math.cos(φ2)*math.cos(Δλ)
+    bearing = (math.degrees(math.atan2(y, x)) + 360) % 360
+    return dist, bearing
+
+
+def _find_best_panorama(coordinates: str, target_date: str):
+    """
+    Find the panorama ID and metadata nearest to coordinates and on or before target_date.
+    """
+    user_dt = datetime.date.fromisoformat(target_date)
+    lat, lon = map(float, coordinates.split(","))
+    panos = search_panoramas(lat=lat, lon=lon)
+
+    candidates = []
+    for p in panos:
+        ds = p.date or fetch_meta(p.pano_id).date
+        dt = None
+        for fmt in ("%Y-%m", "%Y", "%B %Y"):
+            try:
+                parsed = datetime.datetime.strptime(ds, fmt)
+                dt = parsed.date().replace(day=1)
+                break
+            except ValueError:
+                continue
+        if not dt or dt > user_dt:
+            continue
+        meta = fetch_meta(p.pano_id)
+        dist = haversine(lat, lon, meta.location.lat, meta.location.lng)
+        candidates.append((dt, dist, p, meta))
+
+    if not candidates:
+        raise RuntimeError(f"No panoramas on or before {target_date}")
+
+    # sort by date (newest first), then proximity (nearest)
+    _, _, best_pano, best_meta = sorted(
+        candidates,
+        key=lambda x: (x[0].toordinal(), -x[1])
+    )[-1]
+    return best_pano, best_meta
+
+
+def _fetch_image_bytes(pano_id: str, width: int, height: int, heading: int, pitch: int, fov: int) -> bytes:
+    """
+    Download a Street View image via robolyst/streetview and return raw JPEG bytes.
     """
     pil_img = get_streetview(
         pano_id=pano_id,
@@ -84,83 +127,25 @@ def getStreetViewByDate(
     height: int = 300,
     fov: int = 120,
     heading: int = 0,
-    pitch: int = 0,
+    pitch: int = 0
 ):
     """
-    Fetch the Street View panorama on or before `target_date` closest to `coordinates`.
-
-    Returns:
-      images:   list of raw JPEG bytes (length=1)
-      metadata: list of dicts (length=1)
+    Single‐tile Street‑View for best panorama on or before target_date.
+    Returns ([bytes], [metadata]).
     """
-    # Parse the target date
-    user_dt = datetime.date.fromisoformat(target_date)
-
-    # Split coordinates
-    lat, lon = map(float, coordinates.split(","))
-
-    # 1) List available panoramas via streetview JS-scrape
-    panos = search_panoramas(lat=lat, lon=lon)
-
-    # 2) Phase 1: Filter by date only (no HTTP except fallback)
-    parsed = []
-    for pano in panos:
-        # Get date string from JS result or fallback to metadata
-        if pano.date:
-            date_str = pano.date
-        else:
-            date_str = fetch_meta(pano.pano_id).date
-
-        # Parse date_str in formats: YYYY-MM, YYYY, Month YYYY
-        dt = None
-        for fmt in ("%Y-%m", "%Y", "%B %Y"):
-            try:
-                parsed_dt = datetime.datetime.strptime(date_str, fmt)
-                dt = parsed_dt.date().replace(day=1)
-                break
-            except ValueError:
-                continue
-        if dt and dt <= user_dt:
-            parsed.append((dt, pano))
-
-    if not parsed:
-        raise RuntimeError(f"No panoramas on/before {target_date}")
-
-    # Find the most recent date
-    best_date = max(dt for dt, _ in parsed)
-    candidates = [p for dt, p in parsed if dt == best_date]
-
-    # 3) Phase 2: Among candidates, compute distance (min HTTP via cache + parallel)
-    with ThreadPoolExecutor(max_workers=min(4, len(candidates))) as exe:
-        metas = list(exe.map(lambda p: fetch_meta(p.pano_id), candidates))
-
-    dists = [haversine(lat, lon, m.location.lat, m.location.lng) for m in metas]
-    best_idx = dists.index(min(dists))
-    best_pano = candidates[best_idx]
-    best_meta = metas[best_idx]
-
-    # 4) Download the exact image bytes
-    img_bytes = _fetch_streetview_bytes(
-        pano_id=best_pano.pano_id,
-        width=width,
-        height=height,
-        heading=heading,
-        pitch=pitch,
-        fov=fov,
-    )
-
+    pano, meta = _find_best_panorama(coordinates, target_date)
+    img = _fetch_image_bytes(pano.pano_id, width, height, heading, pitch, fov)
     metadata = {
-        "pano_id": best_pano.pano_id,
-        "date": best_meta.date,
-        "lat": best_meta.location.lat,
-        "lng": best_meta.location.lng,
+        "pano_id": pano.pano_id,
+        "date": meta.date,
+        "lat": meta.location.lat,
+        "lng": meta.location.lng,
         "heading": heading,
         "fov": fov,
         "size": f"{width}x{height}",
         "location": coordinates,
     }
-
-    return [img_bytes], [metadata]
+    return [img], [metadata]
 
 
 def getPanoramaByDateTiles(
@@ -170,36 +155,72 @@ def getPanoramaByDateTiles(
     height: int = 300,
     fov: int = 120,
     headings: list[int] = (0, 120, 240),
-    pitch: int = 0,
+    pitch: int = 0
 ):
     """
-    Fetch up to three images (for each heading) on or before `target_date`.
-
-    Returns:
-      images:   list of raw JPEG bytes
-      metadata: list of dicts
+    Surrounding‐view mode: fetch multiple headings via getStreetViewByDate.
+    Returns (list[bytes], list[metadata]).
     """
-    all_images, all_meta = [], []
-
+    images, metas = [], []
     for h in headings:
         try:
-            imgs, metas = getStreetViewByDate(
-                coordinates=coordinates,
-                target_date=target_date,
-                width=width,
-                height=height,
-                fov=fov,
-                heading=h,
-                pitch=pitch,
+            imgs, mds = getStreetViewByDate(
+                coordinates, target_date,
+                width=width, height=height,
+                fov=fov, heading=h, pitch=pitch
             )
-            all_images.append(imgs[0])
-            all_meta.append(metas[0])
+            images.append(imgs[0])
+            metas.append(mds[0])
         except RuntimeError:
             continue
 
-    if not all_images:
-        raise RuntimeError(
-            f"No panoramas on/before {target_date} at any heading"
-        )
+    if not images:
+        raise RuntimeError(f"No panoramas on or before {target_date} at any heading")
+    return images, metas
 
-    return all_images, all_meta
+
+def getStreetViewOfBuilding(
+    coordinates: str,
+    target_date: str,
+    width: int = 600,
+    height: int = 300,
+    pitch: int = 0,
+    fov: int = 120
+):
+    """
+    Building‐centered view: compute bearing to building_coords and fetch single tile.
+    Returns ([bytes], [metadata]).
+    """
+   
+    building_coords = coordinates
+    pano, meta = _find_best_panorama(coordinates, target_date)
+    dist, bearing = haversine_and_bearing(
+        meta.location.lat, meta.location.lng,
+        *map(float, building_coords.split(","))
+    )
+    img = _fetch_image_bytes(pano.pano_id, width, height, int(bearing), pitch, fov)
+    metadata = {
+        "pano_id": pano.pano_id,
+        "date": meta.date,
+        "lat": meta.location.lat,
+        "lng": meta.location.lng,
+        "heading": int(bearing),
+        "fov": fov,
+        "size": f"{width}x{height}",
+        "location": f"{meta.location.lat},{meta.location.lng}",
+    }
+    return [img], [metadata]
+
+
+def getStreetView(
+    coordinates: str,
+    target_date: str,
+    mode: str,
+    **kwargs
+):
+    """
+    Unified entry: use mode="building" or "surrounding" to dispatch.
+    """
+    if mode == PerspectiveMode.SURROUNDING.value:
+        return getPanoramaByDateTiles(coordinates, target_date, **kwargs)
+    return getStreetViewOfBuilding(coordinates, target_date, **kwargs)

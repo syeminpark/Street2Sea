@@ -3,15 +3,17 @@ import json
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QDateEdit, QLineEdit, QPushButton, QTextEdit, QLabel,
-    QSizePolicy
+    QSizePolicy, QCheckBox, QRadioButton, QButtonGroup
 )
 from PyQt5.QtCore import QDate, Qt
 from pykakasi import kakasi
+
 
 class AddressFormUI(QWidget):
     """
     Base class: builds all the static UI (widgets, layouts, styles, kakasi converter),
     but does not hook up any signals or network logic.
+    Now includes a mode checkbox to choose between 'Building' or 'Surrounding' views.
     """
     def __init__(self):
         super().__init__()
@@ -50,6 +52,7 @@ class AddressFormUI(QWidget):
         self.postal.setPlaceholderText("e.g. 271-0076")
         rows.addRow("Postal Code:", self.postal)
 
+
         # Japanese address fields
         self.prefecture = QLineEdit();   self.prefecture.setReadOnly(True)
         self.city       = QLineEdit();   self.city.setReadOnly(True)
@@ -70,6 +73,19 @@ class AddressFormUI(QWidget):
         self.address2 = QLineEdit()
         rows.addRow("Address Line 2:", self.address2)
         self.address2.setPlaceholderText("e.g. 27-2")
+
+               # Mode selection: Building vs Surrounding
+        mode_layout = QHBoxLayout()
+        self.rb_building = QRadioButton("Building")
+        self.rb_surrounding = QRadioButton("Surrounding")
+        self.rb_building.setChecked(True)
+        mode_layout.addWidget(self.rb_building)
+        mode_layout.addWidget(self.rb_surrounding)
+        # group for exclusive selection
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.addButton(self.rb_building)
+        self.mode_group.addButton(self.rb_surrounding)
+        rows.addRow("Perspective Mode:", mode_layout)
 
         fv.addLayout(rows)
         fv.addStretch(1)
@@ -112,6 +128,7 @@ class AddressFormUI(QWidget):
             bottom.addWidget(panel, 1)
 
         root.addLayout(bottom)
+
 
     def _apply_styles(self):
         self.setStyleSheet("""

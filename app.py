@@ -2,7 +2,8 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QMessageBox
 from interface import AddressForm
-from googleAPI import addressToCoordinates, getStreetViewByDate, getPanoramaByDateTiles
+from googleAPI import addressToCoordinates, getStreetView
+from constants import PerspectiveMode
 
 def handle_form(data):
     try:
@@ -16,16 +17,8 @@ def handle_form(data):
 
         # 2) Geocode
         coords = addressToCoordinates(address)
-
-        # 3) Fetch the 3×120° tiles
-        tiles,metas = getPanoramaByDateTiles(coords, target_date= data["date"].split()[0])
-
-        # 4) Hand off to your UI for Prev/Next navigation
-        w.set_street_images(tiles,metas)
-
-        # 5) (…and similarly AI image…)
-        # ai_resp = getAIImage(coords)
-        # w.display_ai_image(ai_resp.content)
+        tiles,metas = getStreetView(coords, target_date= data["date"].split()[0], mode=data["mode"])
+        w.set_street_images(tiles,metas,)
 
     except Exception as e:
         err = str(e)
@@ -38,3 +31,5 @@ if __name__ == "__main__":
     w.data_submitted.connect(handle_form)
     w.show()
     sys.exit(app.exec_())
+
+

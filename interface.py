@@ -4,6 +4,8 @@ from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QPushButton, QHBoxLayout, QLabel
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from interface_ui import AddressFormUI
+from constants import PerspectiveMode
+
 
 class AddressForm(AddressFormUI):
     data_submitted = pyqtSignal(dict)
@@ -80,6 +82,12 @@ class AddressForm(AddressFormUI):
         )
 
     def _on_submit(self):
+        mode = (
+        PerspectiveMode.SURROUNDING
+        if self.rb_surrounding.isChecked()
+        else PerspectiveMode.BUILDING
+        )
+
         self.log.append("Form submitted.")
         payload = {
             "date":          self.date_edit.date().toString("yyyy-MM-dd"),
@@ -91,6 +99,7 @@ class AddressForm(AddressFormUI):
             "city_en":       self.city_en.text(),
             "town_en":       self.town_en.text(),
             "address2":      self.address2.text().strip(),
+            "mode":mode.value
         }
         self.submit_btn.setEnabled(False)
         self.data_submitted.emit(payload)
