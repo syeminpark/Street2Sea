@@ -1,11 +1,12 @@
 # interface_ui.py
+
 import json
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QDateEdit, QLineEdit, QPushButton, QTextEdit, QLabel,
-    QSizePolicy, QCheckBox, QRadioButton, QButtonGroup, QTimeEdit
+    QSizePolicy, QRadioButton, QButtonGroup, QTimeEdit
 )
-from PyQt5.QtCore import QDate, QTime, Qt  # ✅ QTime comes from QtCore
+from PyQt5.QtCore import QDate, QTime, Qt
 from pykakasi import kakasi
 
 
@@ -13,7 +14,8 @@ class AddressFormUI(QWidget):
     """
     Base class: builds all the static UI (widgets, layouts, styles, kakasi converter),
     but does not hook up any signals or network logic.
-    Now includes a mode checkbox to choose between 'Building' or 'Surrounding' views.
+    Now includes a mode checkbox to choose between 'Building' or 'Surrounding' views,
+    and a Date & Time picker that only allows selecting the hour.
     """
     def __init__(self):
         super().__init__()
@@ -22,9 +24,9 @@ class AddressFormUI(QWidget):
         self._init_kakasi()
 
     def _build_ui(self):
-        # window
+        # Window setup
         self.setMinimumSize(900, 900)
-        self.setWindowTitle("SAFE: Street-view based AI Images from Forecast-simulations for Evacuation")
+        self.setWindowTitle("SAFE: Street‑view AI Images from Forecast Simulations")
         root = QVBoxLayout(self)
 
         # === Top row: form + log ===
@@ -41,26 +43,30 @@ class AddressFormUI(QWidget):
         rows.setHorizontalSpacing(20)
         rows.setVerticalSpacing(15)
 
+        # Date & Time (hour only)
         datetime_layout = QHBoxLayout()
-
         self.date_edit = QDateEdit(calendarPopup=True)
         self.date_edit.setDate(QDate.currentDate())
         self.date_edit.setDisplayFormat("yyyy-MM-dd")
+        datetime_layout.addWidget(self.date_edit)
 
         self.time_edit = QTimeEdit()
-        self.time_edit.setDisplayFormat("HH:mm")
-        self.time_edit.setTime(QTime.currentTime())
-
-        datetime_layout.addWidget(self.date_edit)
+        # Display only hours
+        self.time_edit.setDisplayFormat("HH")
+        now = QTime.currentTime()
+        # Initialize time to current hour, zero minutes
+        self.time_edit.setTime(QTime(now.hour(), 0))
+        # Restrict range to whole hours
+        self.time_edit.setMinimumTime(QTime(0, 0))
+        self.time_edit.setMaximumTime(QTime(23, 0))
         datetime_layout.addWidget(self.time_edit)
 
-        rows.addRow("Date & Time:", datetime_layout)
+        rows.addRow("Date & Time(Hour):", datetime_layout)
 
         # Postal code
         self.postal = QLineEdit()
         self.postal.setPlaceholderText("e.g. 271-0076")
         rows.addRow("Postal Code:", self.postal)
-
 
         # Japanese address fields
         self.prefecture = QLineEdit();   self.prefecture.setReadOnly(True)
@@ -80,31 +86,22 @@ class AddressFormUI(QWidget):
 
         # Address Line 2
         self.address2 = QLineEdit()
+        self.address2.setPlaceholderText("e.g. 27‑2 or Bear Pond Espresso")
         rows.addRow("Address Line 2:", self.address2)
-        self.address2.setPlaceholderText("e.g. 27-2 or Bear Pond Expresso")
 
-        self.postal.setMinimumWidth(300)
-        self.prefecture.setMinimumWidth(300)
-        self.city.setMinimumWidth(300)
-        self.town.setMinimumWidth(300)
-        self.prefecture_en.setMinimumWidth(300)
-        self.city_en.setMinimumWidth(300)
-        self.town_en.setMinimumWidth(300)
-        self.address2.setMinimumWidth(300)
-
-               # Mode selection: Building vs Surrounding
+        # Mode selection: Building vs Surrounding
         mode_layout = QHBoxLayout()
-        self.rb_building = QRadioButton("Building")
+        self.rb_building    = QRadioButton("Building")
         self.rb_surrounding = QRadioButton("Surrounding")
         self.rb_building.setChecked(True)
         mode_layout.addWidget(self.rb_building)
         mode_layout.addWidget(self.rb_surrounding)
-        # group for exclusive selection
         self.mode_group = QButtonGroup(self)
         self.mode_group.addButton(self.rb_building)
         self.mode_group.addButton(self.rb_surrounding)
         rows.addRow("Perspective Mode:", mode_layout)
 
+        # Finish form panel
         fv.addLayout(rows)
         fv.addStretch(1)
         self.submit_btn = QPushButton("Submit")
@@ -128,8 +125,8 @@ class AddressFormUI(QWidget):
         # === Bottom row: image panels ===
         bottom = QHBoxLayout()
         for title, attr, desc in (
-            ("Street‑View",  "img1_label", "Displays the map google street view image for the entered address."),
-            ("AI‑Generated", "img2_label", "Shows an AI generated image based on predicted flood depth"),
+            ("Street‑View",  "img1_label", "Google Street View for the entered address."),
+            ("AI‑Generated", "img2_label", "AI‑generated image based on flood depth."),
         ):
             panel = QWidget()
             pv = QVBoxLayout(panel)
@@ -174,13 +171,13 @@ class AddressFormUI(QWidget):
         kks.setMode("s", True)
         self.converter = kks.getConverter()
 
-    def _make_title(self, text):
+    def _make_title(self, text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setAlignment(Qt.AlignCenter)
         lbl.setStyleSheet("font-weight: bold; font-size: 14pt;")
         return lbl
 
-    def _make_subtitle(self, text):
+    def _make_subtitle(self, text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setAlignment(Qt.AlignCenter)
         lbl.setStyleSheet("font-style: italic; font-size: 10pt;")
