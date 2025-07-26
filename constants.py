@@ -8,5 +8,5 @@ class TEJapanDirectory(Enum):
     DIRECTORY= "TEJapan_15S_FloodData"
 
 class TEJapanFileType(Enum):
-    DEPTH= "FLDDPH",
-    FRACTION ="FLDFRC"
+    DEPTH = "FLDDPH"
+    FRACTION = "FLDFRC"
