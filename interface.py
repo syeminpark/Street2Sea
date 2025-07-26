@@ -91,6 +91,7 @@ class AddressForm(AddressFormUI):
         self.log.append("Form submitted.")
         payload = {
             "date":          self.date_edit.date().toString("yyyy-MM-dd"),
+            "time":  self.time_edit.time().toString("HH:mm"),
             "postal_code":   self.postal.text().strip(),
             "prefecture":    self.prefecture.text(),
             "city":          self.city.text(),

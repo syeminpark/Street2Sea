@@ -1,4 +1,5 @@
 # app.py
+
 import sys
 from PyQt5.QtWidgets import QApplication, QMessageBox
 from interface import AddressForm
@@ -19,47 +20,60 @@ def handle_form(data):
         ])
 
         # 2) Geocode
-        coords = addressToCoordinates(address)
+        coords = addressToCoordinates(address)  # e.g. "35.78,139.90"
 
-        # 3) Parse date string into a datetime.date (00:00:00)
-        #    data["date"] is something like "2025‑07‑25"
-        target_dt = datetime.fromisoformat(data["date"])
+        # 3) Parse date+hour into a full datetime
+        dt_str = f"{data['date']} {data['time']}"
+        target_dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
 
-        # 4) Fetch street view
+        # 4) Fetch Street‑View
         tiles, metas = getStreetView(
             coords,
-            target_date=data["date"],  # still pass the string here if that API expects it
+            target_date=data["date"],
             mode=data["mode"]
         )
         w.set_street_images(tiles, metas)
 
-        # 5) Download flood data
-        find_and_download_flood_data(target_dt)
-        # 6) Open the closest .nc file BEFORE (or at) our datetime
-        #    Note the swapped argument order: (fileType, target_datetime)
+        # 5) Download the best flood data for that datetime
+        dt_fetched, resolution = find_and_download_flood_data(target_dt)
+    
 
-        # w.log.append
-        dataset = openClosestFile(
-            TEJapanFileType.DEPTH.value,
+        # 6) Depth: open closest file before or at target_dt
+        ds_depth = openClosestFile(
+            TEJapanFileType.DEPTH,
             target_dt
         )
-        print(coords)
-        # 7) Extract the nearest value at our coords
-        flood_val = getNearestValueByCoordinates(dataset, coords,target_dt)
-        w.log.append(f"Dataset: {dataset}")
-    
-        w.log.append(f"🌊 Flood value at location: {flood_val}")
+        depth_value, depth_time = getNearestValueByCoordinates(
+            ds_depth,
+            coords,
+            target_dt
+        )
+   
+
+        # 7) Fraction: open closest fraction file
+        ds_frac = openClosestFile(
+            TEJapanFileType.FRACTION,
+            target_dt
+        )
+        frac_value, frac_time = getNearestValueByCoordinates(
+            ds_frac,
+            coords,
+            target_dt
+        )
+
+        # 8) Compute and log volume proxy
+        volume = floodVolumeProxy(depth_value, frac_value)
 
 
     except Exception as e:
-        err = str(e)
-        w.log.append(f"⚠ Error: {err}")
-        QMessageBox.warning(w, "API Error", err)
- 
+        msg = str(e)
+        w.log.append(f"⚠ Error: {msg}")
+        QMessageBox.warning(w, "Error", msg)
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     w = AddressForm()
     w.data_submitted.connect(handle_form)
     w.show()
     sys.exit(app.exec_())
-
