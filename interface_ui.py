@@ -3,9 +3,9 @@ import json
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QDateEdit, QLineEdit, QPushButton, QTextEdit, QLabel,
-    QSizePolicy, QCheckBox, QRadioButton, QButtonGroup
+    QSizePolicy, QCheckBox, QRadioButton, QButtonGroup, QTimeEdit
 )
-from PyQt5.QtCore import QDate, Qt
+from PyQt5.QtCore import QDate, QTime, Qt  # ✅ QTime comes from QtCore
 from pykakasi import kakasi
 
 
@@ -23,7 +23,7 @@ class AddressFormUI(QWidget):
 
     def _build_ui(self):
         # window
-        self.setMinimumSize(1000, 1000)
+        self.setMinimumSize(900, 900)
         self.setWindowTitle("SAFE: Street-view based AI Images from Forecast-simulations for Evacuation")
         root = QVBoxLayout(self)
 
@@ -41,11 +41,20 @@ class AddressFormUI(QWidget):
         rows.setHorizontalSpacing(20)
         rows.setVerticalSpacing(15)
 
-        # Date picker
+        datetime_layout = QHBoxLayout()
+
         self.date_edit = QDateEdit(calendarPopup=True)
         self.date_edit.setDate(QDate.currentDate())
         self.date_edit.setDisplayFormat("yyyy-MM-dd")
-        rows.addRow("Date:", self.date_edit)
+
+        self.time_edit = QTimeEdit()
+        self.time_edit.setDisplayFormat("HH:mm")
+        self.time_edit.setTime(QTime.currentTime())
+
+        datetime_layout.addWidget(self.date_edit)
+        datetime_layout.addWidget(self.time_edit)
+
+        rows.addRow("Date & Time:", datetime_layout)
 
         # Postal code
         self.postal = QLineEdit()
