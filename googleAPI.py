@@ -207,7 +207,7 @@ def getStreetViewOfBuilding(
         "heading": int(bearing),
         "fov": fov,
         "size": f"{width}x{height}",
-        "location": f"{meta.location.lat},{meta.location.lng}",
+        "location": building_coords 
     }
     return [img], [metadata]
 
