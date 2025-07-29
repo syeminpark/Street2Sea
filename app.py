@@ -7,7 +7,8 @@ from googleAPI import addressToCoordinates, getStreetView
 from TEJapanAPI import find_and_download_flood_data
 from preprocessNCFile import openClosestFile, getNearestValueByCoordinates, floodVolumeProxy
 from constants import TEJapanFileType
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 def handle_form(data):
     try:
@@ -18,13 +19,23 @@ def handle_form(data):
             data["town"],
             data["address2"]
         ])
+        print(data["timezone"])
 
         # 2) Geocode
         coords = addressToCoordinates(address)  # e.g. "35.78,139.90"
 
         # 3) Parse date+hour into a full datetime
         dt_str = f"{data['date']} {data['time']}"
-        target_dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
+        # parse into a naive datetime
+        naive = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
+        # attach tzinfo based on the user’s selection, then convert to UTC
+        if data["timezone"].startswith("JST"):
+            local = naive.replace(tzinfo=ZoneInfo("Asia/Tokyo"))
+            target_dt = local.astimezone(timezone.utc).replace(tzinfo=None)
+            print("UTC:", target_dt)
+        else:
+            # assume it’s already UTC
+            target_dt = naive
 
         # 4) Fetch Street‑View
         tiles, metas = getStreetView(
@@ -37,7 +48,6 @@ def handle_form(data):
         # 5) Download the best flood data for that datetime
         dt_fetched, resolution = find_and_download_flood_data(target_dt)
     
-
         # 6) Depth: open closest file before or at target_dt
         ds_depth = openClosestFile(
             TEJapanFileType.DEPTH,
@@ -49,7 +59,6 @@ def handle_form(data):
             target_dt
         )
    
-
         # 7) Fraction: open closest fraction file
         ds_frac = openClosestFile(
             TEJapanFileType.FRACTION,

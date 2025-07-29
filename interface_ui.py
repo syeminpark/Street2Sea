@@ -4,7 +4,7 @@ import json
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QDateEdit, QLineEdit, QPushButton, QTextEdit, QLabel,
-    QSizePolicy, QRadioButton, QButtonGroup, QTimeEdit
+    QSizePolicy, QRadioButton, QButtonGroup, QTimeEdit, QComboBox
 )
 from PyQt5.QtCore import QDate, QTime, Qt
 from pykakasi import kakasi
@@ -42,6 +42,8 @@ class AddressFormUI(QWidget):
         rows = QFormLayout()
         rows.setHorizontalSpacing(20)
         rows.setVerticalSpacing(15)
+        rows.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+
 
         # Date & Time (hour only)
         datetime_layout = QHBoxLayout()
@@ -49,6 +51,7 @@ class AddressFormUI(QWidget):
         self.date_edit.setDate(QDate.currentDate())
         self.date_edit.setDisplayFormat("yyyy-MM-dd")
         datetime_layout.addWidget(self.date_edit)
+        
 
         self.time_edit = QTimeEdit()
         # Display only hours
@@ -61,6 +64,10 @@ class AddressFormUI(QWidget):
         self.time_edit.setMaximumTime(QTime(23, 0))
         datetime_layout.addWidget(self.time_edit)
 
+             # 1) Timezone selector
+        self.tz_combo = QComboBox()
+        self.tz_combo.addItems(["JST", "UTC"])
+        datetime_layout.addWidget(self.tz_combo)
         rows.addRow("Date & Time(Hour):", datetime_layout)
 
         # Postal code

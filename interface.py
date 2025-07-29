@@ -23,6 +23,7 @@ class AddressForm(AddressFormUI):
         self.postal.textChanged.connect(self.update_submit_state)
         self.address2.textChanged.connect(self.update_submit_state)
         self.submit_btn.clicked.connect(self._on_submit)
+        self.tz_combo.currentIndexChanged.connect(self.update_submit_state)
 
         # add Prev/Next buttons under Street‑View panel
         nav_layout = QHBoxLayout()
@@ -100,7 +101,8 @@ class AddressForm(AddressFormUI):
             "city_en":       self.city_en.text(),
             "town_en":       self.town_en.text(),
             "address2":      self.address2.text().strip(),
-            "mode":mode.value
+            "mode":mode.value,
+            "timezone":      self.tz_combo.currentText(),   
         }
         self.submit_btn.setEnabled(False)
         self.data_submitted.emit(payload)
