@@ -7,8 +7,8 @@ from PyQt5.QtWidgets import (
     QSizePolicy, QRadioButton, QButtonGroup, QTimeEdit, QComboBox
 )
 from PyQt5.QtCore import QDate, QTime, Qt
-from pykakasi import kakasi
-
+from pykakasi import kakasi 
+from interface_utility import make_autofill_on_tab
 
 class AddressFormUI(QWidget):
     """
@@ -20,12 +20,29 @@ class AddressFormUI(QWidget):
     def __init__(self):
         super().__init__()
         self._build_ui()
+        make_autofill_on_tab(self.postal)
+        make_autofill_on_tab(self.address2)
         self._apply_styles()
         self._init_kakasi()
+    
+    def _make_image_panel(self, title, attr_name, desc):
+        panel = QWidget()
+        pv = QVBoxLayout(panel)
+        pv.setContentsMargins(10, 0, 10, 10)
+        pv.setSpacing(5)
+        pv.addWidget(self._make_title(title))
+        lbl = QLabel(alignment=Qt.AlignCenter)
+        lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        lbl.setScaledContents(True)
+        lbl.setStyleSheet("border: 2px solid #555;")
+        setattr(self, attr_name, lbl)
+        pv.addWidget(lbl)
+        pv.addWidget(self._make_subtitle(desc))
+        return panel
 
     def _build_ui(self):
         # Window setup
-        self.setMinimumSize(900, 900)
+        self.setMinimumSize(1800, 900)
         self.setWindowTitle("SAFE: Street‑view AI Images from Forecast Simulations")
         root = QVBoxLayout(self)
 
@@ -72,7 +89,7 @@ class AddressFormUI(QWidget):
 
         # Postal code
         self.postal = QLineEdit()
-        self.postal.setPlaceholderText("e.g. 271-0076")
+        self.postal.setPlaceholderText("e.g. 157-0071")
         rows.addRow("Postal Code:", self.postal)
 
         # Japanese address fields
@@ -93,7 +110,7 @@ class AddressFormUI(QWidget):
 
         # Address Line 2
         self.address2 = QLineEdit()
-        self.address2.setPlaceholderText("e.g. 27‑2 or Bear Pond Espresso")
+        self.address2.setPlaceholderText("e.g. 3 Chome−13−10 ナック")
         rows.addRow("Address Line 2:", self.address2)
 
         # Mode selection: Building vs Surrounding
@@ -129,27 +146,37 @@ class AddressFormUI(QWidget):
 
         root.addLayout(top)
 
-        # === Bottom row: image panels ===
+        # === Bottom row: image panels + Cesium ===
         bottom = QHBoxLayout()
-        for title, attr, desc in (
-            ("Street‑View",  "img1_label", "Google Street View for the entered address."),
-            ("AI‑Generated", "img2_label", "AI‑generated image based on flood depth."),
-        ):
-            panel = QWidget()
-            pv = QVBoxLayout(panel)
-            pv.setContentsMargins(10, 0, 10, 10)
-            pv.setSpacing(5)
-            pv.addWidget(self._make_title(title))
-            lbl = QLabel(alignment=Qt.AlignCenter)
-            lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            lbl.setScaledContents(True)
-            lbl.setStyleSheet("border: 2px solid #555;")
-            setattr(self, attr, lbl)
-            pv.addWidget(lbl)
-            pv.addWidget(self._make_subtitle(desc))
-            bottom.addWidget(panel, 1)
 
-        root.addLayout(bottom)
+        # 1) Street‑View panel
+        street_panel = self._make_image_panel(
+            "Street‑View", "img1_label",
+            "Google Street View for the entered address."
+        )
+        bottom.addWidget(street_panel, 1)
+
+        # 2) Cesium panel (new)
+        self.cesium_panel = QWidget()                 # keep a blank shell
+        cv = QVBoxLayout(self.cesium_panel)
+        cv.setContentsMargins(10, 0, 10, 10)
+        cv.setSpacing(5)
+        cv.addWidget(self._make_title("3‑D Map"))
+        self.cesium_placeholder = QLabel("",
+                                        alignment=Qt.AlignCenter)
+        self.cesium_placeholder.setStyleSheet("border:2px solid #555; color:#777;")
+        cv.addWidget(self.cesium_placeholder, 1)      # stretch=1
+        cv.addWidget(self._make_subtitle("3D scene of the street-view location"))
+        bottom.addWidget(self.cesium_panel, 1)        # <-- still centered
+
+        # 3) AI‑Generated panel
+        ai_panel = self._make_image_panel(
+            "AI‑Generated", "img2_label",
+            "AI‑generated image based on flood depth."
+        )
+        bottom.addWidget(ai_panel, 1)
+
+        root.addLayout(bottom)                   # ← add **once**, after it’s complete
 
 
     def _apply_styles(self):

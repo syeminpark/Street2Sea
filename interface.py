@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import QPushButton, QHBoxLayout, QLabel
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from interface_ui import AddressFormUI
 from constants import PerspectiveMode
+from cesiumViewer import CesiumViewer
 
 
 class AddressForm(AddressFormUI):
@@ -88,6 +89,7 @@ class AddressForm(AddressFormUI):
         if self.rb_surrounding.isChecked()
         else PerspectiveMode.BUILDING
         )
+        self._ensure_map_started()       
 
         self.log.append("Form submitted.")
         payload = {
@@ -106,6 +108,20 @@ class AddressForm(AddressFormUI):
         }
         self.submit_btn.setEnabled(False)
         self.data_submitted.emit(payload)
+
+    def _ensure_map_started(self):
+        if getattr(self, "_map_initialized", False):
+            return
+
+        self.cesium_viewer = CesiumViewer()
+        self.cesium_viewer.setStyleSheet("border:2px solid #555;")
+
+        # replace placeholder label with the live viewer
+        layout = self.cesium_panel.layout()               # == cv
+        layout.replaceWidget(self.cesium_placeholder, self.cesium_viewer)
+        self.cesium_placeholder.deleteLater()
+
+        self._map_initialized = True
 
     def set_street_images(self, images, metadata):
         """

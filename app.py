@@ -9,6 +9,8 @@ from preprocessNCFile import openClosestFile, getNearestValueByCoordinates, floo
 from constants import TEJapanFileType
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+from nodeRunner import start_node
+
 
 def handle_form(data):
     try:
@@ -44,6 +46,7 @@ def handle_form(data):
             mode=data["mode"]
         )
         w.set_street_images(tiles, metas)
+        start_node()
 
         # 5) Download the best flood data for that datetime
         dt_fetched, resolution = find_and_download_flood_data(target_dt)

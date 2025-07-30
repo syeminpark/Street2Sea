@@ -12,4 +12,3 @@ class CesiumViewer(QWebEngineView):
         self.setUrl(QUrl("http://localhost:8000"))   # change port/path if needed
 
 
-ㄴ
