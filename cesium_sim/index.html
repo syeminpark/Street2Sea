@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Cesium 3D-Tiles & World Terrain</title>
+
+  <!-- CesiumJS 1.117 -->
+  <script src="https://unpkg.com/cesium@1.117/Build/Cesium/Cesium.js"></script>
+  <link  href="https://unpkg.com/cesium@1.117/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
+
+  <style>html,body,#cesiumContainer{width:100%;height:100%;margin:0;overflow:hidden}</style>
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+  <script type="module">
+     (async () => {
+       Cesium.Ion.defaultAccessToken = 'CESIUM_ION_TOKEN';
+
+    /* 1️⃣ build the helper first */
+  const terrain = Cesium.Terrain.fromWorldTerrain({
+    requestWaterMask:     true,
+    requestVertexNormals: true
+  });
+
+  /* 2️⃣ then the viewer */
+  const viewer = new Cesium.Viewer("cesiumContainer", {
+    terrain,
+    requestRenderMode:       true,
+    maximumRenderTimeChange: Infinity,
+    animation:               false,
+    timeline:                false,
+    baseLayerPicker:         false,
+    sceneModePicker:         false
+  });
+
+  terrain.readyEvent.addEventListener(async (provider) => {
+
+      const lon =139.6142023961819
+      const lat = 35.65256823531473
+      const heightAboveGround = 2.05;
+
+      const position = Cesium.Cartographic.fromDegrees(lon, lat);
+      const terrainProvider = viewer.terrainProvider;
+     const [updatedPosition] = await Cesium.sampleTerrainMostDetailed(terrainProvider, [position]);
+      const groundHeight = updatedPosition.height + heightAboveGround;
+
+      await viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(lon, lat, groundHeight),
+        orientation: {
+          heading: Cesium.Math.toRadians(181),
+          pitch: Cesium.Math.toRadians(0),
+          roll: 0
+        }
+      });
+         viewer.camera.frustum.fov = Cesium.Math.toRadians(336);
+
+      let tilesetLoaded = false;
+
+      viewer.camera.moveEnd.addEventListener(async () => {
+        if (tilesetLoaded) return;
+        tilesetLoaded = true;
+
+
+       // 2️⃣  Load your 3D-Tileset
+    const tileset = await Cesium.Cesium3DTileset.fromUrl(
+        '/13112_setagaya-ku_pref_2023_citygml_2_op_bldg_3dtiles_13112_setagaya-ku_lod1/tileset.json' // Update this with your actual path
+    );
+      viewer.scene.primitives.add(tileset);
+             await tileset.readyPromise;
+
+                   })
+
+    })
+    })()
+
+
+  </script>
+</body>
+</html>

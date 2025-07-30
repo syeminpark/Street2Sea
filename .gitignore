@@ -3,3 +3,5 @@
 /node_modules/
 /pointCloud/
 /web3D/setagaya_no_texture/
+/cesium_sim/node_modules/
+/__pycache__/

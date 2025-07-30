@@ -13,15 +13,17 @@ import matplotlib.cm as cm
 # 1.  INPUT PARAMETERS (edit these!)
 # ─────────────────────────────────────────────────────────────────
 LAS_PATH      = "pointCloud/09LD2580.las"   # your LAS file
-CAMERA_LAT    = 35.65293345953977          # camera WGS‑84 latitude
-CAMERA_LON    = 139.6139378111143          # camera WGS‑84 longitude
-TARGET_LAT    = 35.6527645                 # building WGS‑84 latitude
-TARGET_LON    = 139.6139331                 # building WGS‑84 longitude
+CAMERA_LAT    = 35.65256823531473         # camera WGS‑84 latitude
+CAMERA_LON    = 139.6142023961819   # camera WGS‑84 longitude
+TARGET_LAT    = 35.65275210000001              # building WGS‑84 latitude
+TARGET_LON    = 139.6141024            # building WGS‑84 longitude
 GROUND_OFFSET = 2.05                        # meters above ground
 RADIUS        = 1.0                        # search radius [m] to find building points
 
 WINDOW_WIDTH  = 600
 WINDOW_HEIGHT = 300
+
+
 
 # ─────────────────────────────────────────────────────────────────
 # 2.  initialize Open3D GUI
@@ -50,9 +52,21 @@ pts = np.vstack((las.x, las.y, las.z)).T
 pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(pts))
 
 # optional height‑based colouring
-zmin, zmax = pts[:,2].min(), pts[:,2].max()
-norm = (pts[:,2]-zmin)/(zmax-zmin+1e-9)
-pcd.colors = o3d.utility.Vector3dVector(cm._colormaps["turbo"](norm)[:,:3])
+# zmin, zmax = pts[:,2].min(), pts[:,2].max()
+# norm = (pts[:,2]-zmin)/(zmax-zmin+1e-9)
+# pcd.colors = o3d.utility.Vector3dVector(cm._colormaps["turbo"](norm)[:,:3])
+
+# 1️⃣ Robust colour check that works on every laspy version
+has_rgb = all(hasattr(las, ch) for ch in ("red", "green", "blue"))
+
+if has_rgb:
+    max_val = max(las.red.max(), las.green.max(), las.blue.max())
+    divisor = 255.0 if max_val <= 255 else 65535.0   # auto‑choose 8‑ vs 16‑bit
+    rgb = np.column_stack((las.red, las.green, las.blue)) / divisor
+    pcd.colors = o3d.utility.Vector3dVector(rgb)
+
+else:
+    print("[WARN] file has no embedded RGB, using height‑based palette.")
 
 # ─────────────────────────────────────────────────────────────────
 # 5.  sample ground elevation at camera XY
