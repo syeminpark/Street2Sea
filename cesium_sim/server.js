@@ -5,18 +5,25 @@ const fs                     = require('fs');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
+const PORT = process.env.PORT || 8080;   // fallback to 8080
+const HOST = process.env.HOST || 'localhost';
+const CAMERA_METADATA_ROUTE= process.env.CAMERA_METADATA_ROUTE || '/api/coords'
 
-console.log('Loaded CESIUM_ION_TOKEN =', process.env.CESIUM_ION_TOKEN);
+app.use(express.json());  
 
 /* ------------------------------------------------------------------ */
 /* 1️⃣ Dynamic root: inject your Cesium ion token into index.html      */
 app.get('/', (req, res) => {
+  const token = JSON.stringify(process.env.CESIUM_ION_TOKEN || '');
+  // JSON.stringify adds the quotes, escaping if needed ("eyJhbGci...")
   const html = fs
     .readFileSync('index.template.html', 'utf8')
-    .replace('CESIUM_ION_TOKEN', process.env.CESIUM_ION_TOKEN || '');
+    .replace("'CESIUM_ION_TOKEN'", token)        // ← replace including the quotes
+    .replace('"CESIUM_ION_TOKEN"', token);       // handle double-quoted case too
   res.send(html);
 });
 
+app.get('/health', (_, res) => res.send('OK'));
 /* ------------------------------------------------------------------ */
 /* 2️⃣ Proxy OSM tiles so they appear same‑origin to the browser       */
 /*    - We use the generic “tile.openstreetmap.org” host so the       */
@@ -39,8 +46,41 @@ app.use(
 
 /* ------------------------------------------------------------------ */
 /* 3️⃣ Static assets: Cesium JS, CSS, your own JS/CSS, etc.            */
-app.use(express.static('.'));
+app.use(express.static('.'))
+
+const clients = new Set();                     // store open connections
+
+app.get('/events', (req, res) => {             // •••
+  res.set({                                   // headers required by SSE
+    'Content-Type' : 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection     : 'keep-alive'
+  });
+  res.flushHeaders();                          // send headers immediately
+  res.write('\n');                             // 1st blank line = ok
+
+  clients.add(res);                            // keep track
+  req.on('close', () => clients.delete(res));  // remove when tab closes
+});
+
+
+app.post(CAMERA_METADATA_ROUTE, (req, res) => {
+  const payload = JSON.stringify(req.body);
+
+  // broadcast to every connected browser
+  for (const stream of clients) {
+    stream.write(`data: ${payload}\n\n`);
+  }
+
+  res.json({ status: 'ok', sentTo: clients.size });
+});
+
 
 /* ------------------------------------------------------------------ */
 /* 4️⃣ Listen last                                                    */
-app.listen(8000, () => console.log('→ http://localhost:8000'));
+app.listen(PORT, () =>
+  console.log(`→ http://${HOST}:${PORT}`)
+);
+
+
+

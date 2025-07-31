@@ -44,6 +44,9 @@ class AddressForm(AddressFormUI):
         self.net = QNetworkAccessManager(self)
         self.net.finished.connect(self._on_api_response)
 
+        
+        self.cesium_viewer = CesiumViewer()
+
         # initialize button state
         self.update_submit_state()
 
@@ -89,7 +92,7 @@ class AddressForm(AddressFormUI):
         if self.rb_surrounding.isChecked()
         else PerspectiveMode.BUILDING
         )
-        self._ensure_map_started()       
+       
 
         self.log.append("Form submitted.")
         payload = {
@@ -108,12 +111,12 @@ class AddressForm(AddressFormUI):
         }
         self.submit_btn.setEnabled(False)
         self.data_submitted.emit(payload)
+        self._ensure_map_started()       
 
     def _ensure_map_started(self):
         if getattr(self, "_map_initialized", False):
             return
 
-        self.cesium_viewer = CesiumViewer()
         self.cesium_viewer.setStyleSheet("border:2px solid #555;")
 
         # replace placeholder label with the live viewer

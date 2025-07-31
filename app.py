@@ -6,10 +6,29 @@ from interface import AddressForm
 from googleAPI import addressToCoordinates, getStreetView
 from TEJapanAPI import find_and_download_flood_data
 from preprocessNCFile import openClosestFile, getNearestValueByCoordinates, floodVolumeProxy
-from constants import TEJapanFileType
+from constants import TEJapanFileType, WebDirectory
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from nodeRunner import start_node
+from pythonToJS import start_node, sendToNode, wait_health
+
+BASE_URL = f"http://{WebDirectory.HOST.value}:{WebDirectory.PORT.value}"
+API_URL  = BASE_URL + WebDirectory.CAMERA_METADATA_ROUTE.value
+
+
+def dateConverter(data):
+     # 3) Parse date+hour into a full datetime
+        dt_str = f"{data['date']} {data['time']}"
+        # parse into a naive datetime
+        naive = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
+        # attach tzinfo based on the user’s selection, then convert to UTC
+        if data["timezone"].startswith("JST"):
+            local = naive.replace(tzinfo=ZoneInfo("Asia/Tokyo"))
+            target_dt = local.astimezone(timezone.utc).replace(tzinfo=None)
+            print("UTC:", target_dt)
+        else:
+            # assume it’s already UTC
+            target_dt = naive
+        return target_dt
 
 
 def handle_form(data):
@@ -22,22 +41,9 @@ def handle_form(data):
             data["address2"]
         ])
         print(data["timezone"])
-
         # 2) Geocode
         coords = addressToCoordinates(address)  # e.g. "35.78,139.90"
-
-        # 3) Parse date+hour into a full datetime
-        dt_str = f"{data['date']} {data['time']}"
-        # parse into a naive datetime
-        naive = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
-        # attach tzinfo based on the user’s selection, then convert to UTC
-        if data["timezone"].startswith("JST"):
-            local = naive.replace(tzinfo=ZoneInfo("Asia/Tokyo"))
-            target_dt = local.astimezone(timezone.utc).replace(tzinfo=None)
-            print("UTC:", target_dt)
-        else:
-            # assume it’s already UTC
-            target_dt = naive
+        target_dt=dateConverter(data)
 
         # 4) Fetch Street‑View
         tiles, metas = getStreetView(
@@ -45,8 +51,9 @@ def handle_form(data):
             target_date=data["date"],
             mode=data["mode"]
         )
+        print(metas)
         w.set_street_images(tiles, metas)
-        start_node()
+        sendToNode(metas, API_URL)
 
         # 5) Download the best flood data for that datetime
         dt_fetched, resolution = find_and_download_flood_data(target_dt)
@@ -84,8 +91,13 @@ def handle_form(data):
 
 
 if __name__ == "__main__":
+    start_node()
+    wait_health(BASE_URL+"/health")
+    
     app = QApplication(sys.argv)
     w = AddressForm()
     w.data_submitted.connect(handle_form)
     w.show()
     sys.exit(app.exec_())
+
+

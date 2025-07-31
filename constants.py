@@ -10,3 +10,8 @@ class TEJapanDirectory(Enum):
 class TEJapanFileType(Enum):
     DEPTH = "FLDDPH"
     FRACTION = "FLDFRC"
+
+class WebDirectory(Enum):
+    PORT = "8000"
+    HOST="localhost"
+    CAMERA_METADATA_ROUTE= "/api/coords"
