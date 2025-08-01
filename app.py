@@ -53,6 +53,7 @@ def handle_form(data):
         )
         print(metas)
         w.set_street_images(tiles, metas)
+        w.ensure_map_started()
         sendToNode(metas, API_URL)
 
         # 5) Download the best flood data for that datetime
@@ -93,7 +94,7 @@ def handle_form(data):
 if __name__ == "__main__":
     start_node()
     wait_health(BASE_URL+"/health")
-    
+
     app = QApplication(sys.argv)
     w = AddressForm()
     w.data_submitted.connect(handle_form)
