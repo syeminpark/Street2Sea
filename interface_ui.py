@@ -47,6 +47,7 @@ class AddressFormUI(QWidget):
         setattr(self, attr_name, lbl)
         pv.addWidget(lbl, alignment=Qt.AlignCenter)
         pv.addWidget(self._make_subtitle(desc), alignment=Qt.AlignCenter)
+        
         return panel
 
     def _build_ui(self):

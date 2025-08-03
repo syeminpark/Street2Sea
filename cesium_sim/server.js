@@ -11,6 +11,8 @@ const CAMERA_METADATA_ROUTE= process.env.CAMERA_METADATA_ROUTE || '/api/coords'
 
 app.use(express.json());  
 
+let clientReady = false;
+
 /* ------------------------------------------------------------------ */
 /* 1️⃣ Dynamic root: inject your Cesium ion token into index.html      */
 app.get('/', (req, res) => {

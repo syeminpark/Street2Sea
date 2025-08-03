@@ -1,5 +1,5 @@
 import json
-from PyQt5.QtCore import QUrl, pyqtSignal, Qt
+from PyQt5.QtCore import QUrl, pyqtSignal, Qt,  QSize   
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QPushButton, QHBoxLayout, QLabel, QWidget, QSizePolicy
@@ -15,6 +15,10 @@ class AddressForm(AddressFormUI):
 
     def __init__(self):
         super().__init__()
+        self._streetview_size = QSize(self.boxWidth, self.boxHeight)
+
+        self._cesium_ready     = False
+        self._pending_payloads = []
 
         # image navigation state
         self.street_images = []
@@ -29,11 +33,9 @@ class AddressForm(AddressFormUI):
         self.tz_combo.currentIndexChanged.connect(self.update_submit_state)
 
         # create navigation widget sized to the street-view label
-        label_width = self.img1_label.width()
-        nav_widget = QWidget()
-        nav_widget.setFixedWidth(label_width)
-        nav_widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        nav_layout = QHBoxLayout(nav_widget)
+        self.nav_widget = QWidget()
+        self.nav_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        nav_layout = QHBoxLayout(self.nav_widget)
         nav_layout.setContentsMargins(0,0,0,0)
         nav_layout.setSpacing(5)
 
@@ -41,13 +43,12 @@ class AddressForm(AddressFormUI):
         self.next_btn = QPushButton("Next")
         for b in (self.prev_btn, self.next_btn):
             b.setEnabled(False)
-        self.prev_btn.clicked.connect(self.show_prev_street_image)
-        self.next_btn.clicked.connect(self.show_next_street_image)
-        nav_layout.addWidget(self.prev_btn)
-        nav_layout.addWidget(self.next_btn)
+
+        nav_layout.addWidget(self.prev_btn, 1)
+        nav_layout.addWidget(self.next_btn, 1)
 
         parent = self.img1_label.parentWidget().layout()
-        parent.insertWidget(2, nav_widget, alignment=Qt.AlignHCenter)
+        parent.insertWidget(2, self.nav_widget, alignment=Qt.AlignHCenter)
 
         # postal lookup
         self.net = QNetworkAccessManager(self)
@@ -55,6 +56,7 @@ class AddressForm(AddressFormUI):
 
         # prepare Cesium
         self.cesium_viewer = CesiumViewer()
+        self.cesium_viewer.loadFinished.connect(self._on_cesium_ready)  # <<<
 
         self.update_submit_state()
 
@@ -118,24 +120,19 @@ class AddressForm(AddressFormUI):
         if getattr(self, "_map_initialized", False):
             return
 
-        # swap in the real viewer
         layout = self.cesium_panel.layout()
         layout.replaceWidget(self.cesium_placeholder, self.cesium_viewer)
 
-        # grab the exact size you just fixed the QLabel to
-        w = self.img1_label.width()
-        h = self.img1_label.height()
+        # use the *content* size, not the label’s box
+        w = self._streetview_size.width()
+        h = self._streetview_size.height()
 
-        # force Cesium to that size
         self.cesium_viewer.setFixedSize(w, h)
-        self.cesium_viewer.setSizePolicy(
-            QSizePolicy.Fixed,
-            QSizePolicy.Fixed
-        )
+        self.cesium_viewer.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
         self.cesium_placeholder.deleteLater()
         self._map_initialized = True
-
+    
     def set_street_images(self, images, metadata):
         self.street_images = images
         self.street_meta   = metadata
@@ -146,10 +143,9 @@ class AddressForm(AddressFormUI):
         w, h = map(int, size_str.split("x"))
 
         # resize your Street-View QLabel
-        self.img1_label.setFixedSize(w, h)
+        # self.img1_label.setFixedSize(w, h)
 
-        # update nav-buttons container too
-        self.prev_btn.parentWidget().setFixedWidth(w)
+        
 
         # now show the first image
         self._show_current_street()
@@ -158,7 +154,9 @@ class AddressForm(AddressFormUI):
 
         # finally, if Cesium is already in the UI, clamp it now
         if getattr(self, "_map_initialized", False):
-            self.cesium_viewer.setFixedSize(w, h)
+            s = self._streetview_size
+            self.cesium_viewer.setFixedSize(s)
+            # self.cesium_viewer.viewer.resize()
 
 
     def _show_current_street(self):
@@ -171,6 +169,11 @@ class AddressForm(AddressFormUI):
                 Qt.SmoothTransformation
             )
             self.img1_label.setPixmap(scaled)
+            self.img1_label.setFixedSize(scaled.size()) 
+
+            # NEW: remember the real on-screen size
+            self._streetview_size = scaled.size()
+
             meta = self.street_meta[self.current_street_index]
             meta_text = ', '.join(f"{k}: {v}" for k, v in meta.items())
             idx = self.current_street_index + 1
