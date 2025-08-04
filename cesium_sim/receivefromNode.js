@@ -15,3 +15,5 @@ export function initNodeStream(viewer, onData) {
 
   src.onerror = (e) => console.error('SSE error – will auto-reconnect', e);
 }
+
+

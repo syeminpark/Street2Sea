@@ -163,7 +163,6 @@ class AddressFormUI(QWidget):
         cv.addWidget(self._make_subtitle("3D scene of the street-view location"),
                      alignment=Qt.AlignCenter)
         bottom.addWidget(self.cesium_panel, 0)
-
         bottom.addWidget(self._make_image_panel("AI-Generated", "img2_label",
                         "AI-generated image based on flood depth."), 0)
 

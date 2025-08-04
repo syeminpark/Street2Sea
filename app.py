@@ -43,6 +43,7 @@ def handle_form(data):
         print(data["timezone"])
         # 2) Geocode
         coords = addressToCoordinates(address)  # e.g. "35.78,139.90"
+        print("!!!building coords",coords)
         target_dt=dateConverter(data)
 
         # 4) Fetch Street‑View
@@ -51,9 +52,13 @@ def handle_form(data):
             target_date=data["date"],
             mode=data["mode"]
         )
+      
         print(metas)
         w.set_street_images(tiles, metas)
         w.ensure_map_started()
+
+        for meta in metas:
+            meta["type"] = "camera"
         sendToNode(metas, API_URL)
 
         # 5) Download the best flood data for that datetime
@@ -69,21 +74,16 @@ def handle_form(data):
             coords,
             target_dt
         )
+        depth_payload = {
+        "type": "depth",
+        "value": depth_value,
+        "location":coords,
+        "lat":metas[0]["lat"],
+        "lng":metas[0]["lng"],
    
-        # 7) Fraction: open closest fraction file
-        ds_frac = openClosestFile(
-            TEJapanFileType.FRACTION,
-            target_dt
-        )
-        frac_value, frac_time = getNearestValueByCoordinates(
-            ds_frac,
-            coords,
-            target_dt
-        )
+        }
 
-        # 8) Compute and log volume proxy
-        volume = floodVolumeProxy(depth_value, frac_value)
-
+        sendToNode(depth_payload, API_URL)
 
     except Exception as e:
         msg = str(e)

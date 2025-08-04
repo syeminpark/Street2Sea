@@ -16,9 +16,7 @@ class AddressForm(AddressFormUI):
     def __init__(self):
         super().__init__()
         self._streetview_size = QSize(self.boxWidth, self.boxHeight)
-
-        self._cesium_ready     = False
-        self._pending_payloads = []
+        
 
         # image navigation state
         self.street_images = []
@@ -56,7 +54,6 @@ class AddressForm(AddressFormUI):
 
         # prepare Cesium
         self.cesium_viewer = CesiumViewer()
-        self.cesium_viewer.loadFinished.connect(self._on_cesium_ready)  # <<<
 
         self.update_submit_state()
 
@@ -132,7 +129,6 @@ class AddressForm(AddressFormUI):
 
         self.cesium_placeholder.deleteLater()
         self._map_initialized = True
-    
     def set_street_images(self, images, metadata):
         self.street_images = images
         self.street_meta   = metadata
