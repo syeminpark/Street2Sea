@@ -78,13 +78,15 @@ class AddressFormUI(QWidget):
         # Date & Time
         dt_layout = QHBoxLayout()
         self.date_edit = QDateEdit(calendarPopup=True)
-        self.date_edit.setDate(QDate.currentDate())
+        # self.date_edit.setDate(QDate.currentDate())
+        self.date_edit.setDate(QDate(2025, 7, 10))
         self.date_edit.setDisplayFormat("yyyy-MM-dd")
         dt_layout.addWidget(self.date_edit)
         self.time_edit = QTimeEdit()
         self.time_edit.setDisplayFormat("HH")
         now = QTime.currentTime()
-        self.time_edit.setTime(QTime(now.hour(),0))
+        # self.time_edit.setTime(QTime(now.hour(),0))
+        self.time_edit.setTime(QTime(19, 0))        
         self.time_edit.setMinimumTime(QTime(0,0))
         self.time_edit.setMaximumTime(QTime(23,0))
         dt_layout.addWidget(self.time_edit)
@@ -94,7 +96,7 @@ class AddressFormUI(QWidget):
         rows.addRow("Date & Time(Hour):", dt_layout)
 
         # Postal + address fields
-        self.postal = QLineEdit();    self.postal.setPlaceholderText("e.g. 157-0071")
+        self.postal = QLineEdit();    self.postal.setPlaceholderText("e.g. 153-0061")
         rows.addRow("Postal Code:", self.postal)
         self.prefecture = QLineEdit(); self.prefecture.setReadOnly(True)
         self.city       = QLineEdit(); self.city.setReadOnly(True)
@@ -109,7 +111,7 @@ class AddressFormUI(QWidget):
         rows.addRow("City/Ward (EN):", self.city_en)
         rows.addRow("Town/Suburb (EN):", self.town_en)
         self.address2 = QLineEdit()
-        self.address2.setPlaceholderText("e.g. 3 Chome−13−10 ナック")
+        self.address2.setPlaceholderText("e.g. 1 Chome-7-9")
         rows.addRow("Address Line 2:", self.address2)
 
         # Mode radio buttons

@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 from constants import TEJapanDirectory, TEJapanFileType
 import pandas as pd
+import numpy as np
 
 
 def extract_datetime_from_filename(filename):
@@ -48,9 +49,31 @@ def openClosestFile(fileType, target_datetime: datetime):
         )
     dated.sort()
     chosen = dated[-1][1]
+
     path = os.path.join(dirpath, chosen)
     print(f"✅ Opening {fileType} file closest to {target_datetime}: {chosen}")
-    return xr.open_dataset(path)
+
+    ds = xr.open_dataset(path)
+
+    # --- figure out the resolution --------------------------------------
+    if "grid_interval" in ds.attrs:              # best-case: file tells us
+        step_deg = float(ds.attrs["grid_interval"])
+    else:                                        # fallback: look at coords
+        step_deg = float(ds.lon.diff("lon")[0])
+
+    # Convert degrees to an easy label
+    #  0.0166667°  ≃ 1-minute  → “1m”
+    #  0.0041667°  ≃ 15-second → “15s”
+    if abs(step_deg - 0.0166667) < 1e-4:
+        resolution = "1m"
+    elif abs(step_deg - 0.0041667) < 1e-4:
+        resolution = "15s"
+    else:
+        resolution = f"{step_deg:.6f}°"          # give the raw spacing
+
+    ds.attrs["resolution"] = resolution          # stash it in the Dataset
+    return ds
+
 
 
 def getNearestValueByCoordinates(dataset, coordinates, target_time):
@@ -82,3 +105,52 @@ def getNearestValueByCoordinates(dataset, coordinates, target_time):
 def floodVolumeProxy(depth,fraction):
     effective_volume = depth * fraction
     return effective_volume
+
+
+
+def buildDepthPatch(da, coords, filetype, radius_m=60,):
+    grid_step=0
+
+    if filetype.lower() in {"1m", "1min"}:
+        grid_step = 1850
+    elif filetype.lower() in {"15s", "15sec"}:
+        grid_step = 500
+    else:
+        raise ValueError("filetype must be '1m' or '15s'")
+
+
+    if isinstance(coords, str):
+        lat0, lon0 = map(float, coords.split(","))
+    else:
+        lat0 = coords["lat"] if "lat" in coords else coords["latitude"]
+        lon0 = coords["lng"] if "lng" in coords else coords["longitude"]
+
+    # How many cells from centre → edge?
+    half_cells = int(np.ceil(radius_m / grid_step))
+
+    # Index of nearest grid point
+    j = int(abs(lat0 - da.lat[0].values) / da.lat.diff('lat')[0].values)
+    i = int(abs(lon0 - da.lon[0].values) / da.lon.diff('lon')[0].values)
+
+    # Slice row/col ranges (clamp to dataset bounds)
+    j0 = max(j - half_cells, 0)
+    j1 = min(j + half_cells, da.sizes["lat"] - 1)
+    i0 = max(i - half_cells, 0)
+    i1 = min(i + half_cells, da.sizes["lon"] - 1)
+
+    sub = da.isel(lat=slice(j0, j1 + 1), lon=slice(i0, i1 + 1))
+    sub = sub.where(sub < 1e19, 0)          # use *sub* on both sides
+
+    print("Depth patch shape:", sub.shape)
+    print("Min/max:", np.nanmin(sub), np.nanmax(sub))
+    print("Unique values:", np.unique(sub))
+
+
+    return dict(
+    depth = sub.squeeze().values.tolist(),
+    lon0    = float(sub.lon[0].values),
+    lat0    = float(sub.lat[0].values),
+    stepDeg = float(sub.lon.diff('lon')[0].values)
+)
+
+

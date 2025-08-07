@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import QApplication, QMessageBox
 from interface import AddressForm
 from googleAPI import addressToCoordinates, getStreetView
 from TEJapanAPI import find_and_download_flood_data
-from preprocessNCFile import openClosestFile, getNearestValueByCoordinates, floodVolumeProxy
+from preprocessNCFile import openClosestFile, getNearestValueByCoordinates, buildDepthPatch 
 from constants import TEJapanFileType, WebDirectory
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -69,20 +69,31 @@ def handle_form(data):
             TEJapanFileType.DEPTH,
             target_dt
         )
+        
         depth_value, depth_time = getNearestValueByCoordinates(
             ds_depth,
             coords,
             target_dt
         )
-        depth_payload = {
-        "type": "depth",
-        "value": depth_value,
-        "location":coords,
-        "lat":metas[0]["lat"],
-        "lng":metas[0]["lng"],
-   
-        }
+        print(depth_value)
 
+          # ❹ ── GRID PATCH (NEW) ────────────────────────────────────────────
+        patch = buildDepthPatch(
+            ds_depth[list(ds_depth.data_vars)[0]],  # xarray.DataArray
+            coords,               # "lat,lon"  or dict
+            filetype=ds_depth.attrs["resolution"],
+            radius_m  = 60,       # half-width
+        )
+
+        # ❺ ── SEND TO THE FRONT-END ───────────────────────────────────────
+        depth_payload = {
+            "type"     : "depth",
+            "value"    : depth_value,
+            "location" : coords,
+            "lat"      : metas[0]["lat"],
+            "lng"      : metas[0]["lng"],
+            "grid"     : patch         # ▼ add the square patch here
+        }
         sendToNode(depth_payload, API_URL)
 
     except Exception as e:

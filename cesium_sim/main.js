@@ -1,141 +1,166 @@
-import { initNodeStream } from './receiveFromNode.js'
+// main.js
+import { initNodeStream } from './receiveFromNode.js';
 Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN;
 
 (async () => {
-  /* ──  Viewer  ─────────────────────────────────────────── */
   const viewer = new Cesium.Viewer('cesiumContainer', {
-    terrainProvider : await Cesium.CesiumTerrainProvider.fromIonAssetId(2767062),
-    baseLayerPicker : false,
-    timeline        : false,
-    animation       : false,
+    terrainProvider: await Cesium.CesiumTerrainProvider.fromIonAssetId(2767062),
+    baseLayerPicker: false,
+    timeline: false,
+    animation: false,
     requestRenderMode: true,
-    geocoder        : false,
-    homeButton      : false,
-    sceneModePicker : false,
+    geocoder: false,
+    homeButton: false,
+    sceneModePicker: false,
     navigationHelpButton: false
   });
 
-  // add OSM imagery
   viewer.imageryLayers.addImageryProvider(
     new Cesium.UrlTemplateImageryProvider({
-      url: '/osm/{z}/{x}/{y}.png',
-      maximumLevel: 19,
-      credit: '© OpenStreetMap contributors'
+      url: '/osm/{z}/{x}/{y}.png', maximumLevel: 19, credit: '© OpenStreetMap contributors'
     })
   );
+  // viewer.scene.screenSpaceCameraController.enableInputs = false;
 
-  // lock user inputs
-  viewer.scene.screenSpaceCameraController.enableInputs = false;
-
-  /* ──  Initial camera  ─────────────────────────────────── */
   const initialLon = 139.6142023961819;
   const initialLat = 35.65256823531473;
-  const hAGL        = 2.05; // meters above ground
-
-  // sample terrain for the initial view
-  const [initialPos] = await Cesium.sampleTerrainMostDetailed(
+  const hAGL = 2.05;
+  const [initSample] = await Cesium.sampleTerrainMostDetailed(
     viewer.terrainProvider,
-    [ Cesium.Cartographic.fromDegrees(initialLon, initialLat) ]
+    [Cesium.Cartographic.fromDegrees(initialLon, initialLat)]
   );
-
   viewer.camera.setView({
-    destination : Cesium.Cartesian3.fromDegrees(
-      initialLon,
-      initialLat,
-      initialPos.height + hAGL
-    ),
-    orientation : {
-      heading: Cesium.Math.toRadians(336),
-      pitch:   0,
-      roll:    0
-    }
+    destination: Cesium.Cartesian3.fromDegrees(initialLon, initialLat, initSample.height + hAGL),
+    orientation: { heading: Cesium.Math.toRadians(336), pitch: 0, roll: 0 }
   });
   viewer.camera.frustum.fov = Cesium.Math.toRadians(120);
 
-  /* ──  Eagerly load 3D Tileset  ────────────────────────── */
   const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(2602291);
   Object.assign(tileset, {
-    maximumScreenSpaceError:        128,
-    dynamicScreenSpaceError:        true,
+    maximumScreenSpaceError: 128,
+    dynamicScreenSpaceError: true,
     dynamicScreenSpaceErrorDensity: 2e-4,
-   preloadWhenHidden:              true,
-  updateWhenHidden:               true,
-   throttleRequests:               false,  // default true; false → unlimited concurrent fetches
+    preloadWhenHidden: true,
+    updateWhenHidden: true,
+    throttleRequests: false
   });
   viewer.scene.primitives.add(tileset);
-  console.log('loading tileset')
-  // optional: wait until root tile is ready
   await tileset.readyPromise;
 
-initNodeStream(viewer, async (payload, v) => {
-  console.log("data received:", JSON.stringify(payload, null, 2));
+  initNodeStream(viewer, async (payload) => {
+    if (payload.type === 'depth') {
+      const { value, location, grid,lng,lat } = payload;
+      const [latStr, lonStr] = location.split(',');
+      const buildingLat = Number(latStr);
+      const buildingLon = Number(lonStr);
 
-  if (payload.type === "depth") {
-  const { value, location, lat:cameraLat, lng:cameraLng } = payload;
+      const { depth: data, stepDeg, lon0, lat0 } = grid;
+      const numRows = data.length;
+      const numCols = data[0].length;
 
-  // 1. Correct order: lon first, then lat
-  const [buildingLat,buildingLon] = location.split(',').map(Number);
-  console.log(buildingLat,cameraLat,buildingLon,cameraLng)
+      const alignedCol = Math.round((buildingLon - lon0) / stepDeg);
+      const alignedRow = Math.round((buildingLat - lat0) / stepDeg);
+      const alignedLon = lon0 + alignedCol * stepDeg;
+      const alignedLat = lat0 + alignedRow * stepDeg;
 
-  // 2. Terrain height at that spot
-  const [pos] = await Cesium.sampleTerrainMostDetailed(
-    viewer.terrainProvider,
-    [Cesium.Cartographic.fromDegrees(buildingLon,buildingLat)]
-  );
+      const [terrainSample] = await Cesium.sampleTerrainMostDetailed(
+  viewer.terrainProvider,
+  [Cesium.Cartographic.fromDegrees(buildingLon, buildingLat)]
+);
+      const baseHeight = terrainSample.height;
+     
 
-  const position = Cesium.Cartesian3.fromDegrees(
-    buildingLon,buildingLat, pos.height + 1.5
-  );
+      const halfWidthDeg = (numCols * stepDeg) / 2;
+      const halfHeightDeg = (numRows * stepDeg) / 2;
+      const west = alignedLon - halfWidthDeg;
+      const south = alignedLat - halfHeightDeg;
 
-  const alwaysOnTop = Number.POSITIVE_INFINITY;   // or 500 m if you prefer
+      function getColor(d) {
+        const t = Math.min(Math.max(d / 5, 0), 1); // scale for visualization
+        return Cesium.Color.fromHsl(0.6 - 0.6 * t, 1.0, 0.5).withAlpha(0.6);
+      }
+      for (let r = 0; r < data.length; r++) {
+  for (let c = 0; c < data[r].length; c++) {
+    const d = data[r][c];
+     console.log('height:',d)
+    if (!Number.isFinite(d) || d <= 0) continue;
 
-  // 4. Add entity
- const entity= viewer.entities.add({
-    position,
-    point: {
-      pixelSize: 15,
-      color: Cesium.Color.RED,
-      disableDepthTestDistance: alwaysOnTop      // ← NEW
-    },
-    label: {
-      text: `Depth: ${value.toFixed(2)} m`, // ← use depthValue
-      font: '24px sans-serif',
-      fillColor: Cesium.Color.BLUE,
-      showBackground: true,
-      horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-      verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-      disableDepthTestDistance: alwaysOnTop
-    }
-  });
-  // 5. Force redraw
-  viewer.scene.requestRender();
+    const cellWest = west + c * stepDeg;
+    const cellSouth = south + r * stepDeg;
+    const cellEast = cellWest + stepDeg;
+    const cellNorth = cellSouth + stepDeg;
 
+    const centerLon = (cellWest + cellEast) / 2;
+    const centerLat = (cellSouth + cellNorth) / 2;
 
-  } 
-  else {
-    const { lng:cameraLng, lat:cameraLat, heading, fov,location } = payload[0];
-    const [buildingLat, buildingLon] = location.split(',').map(Number);
+    const [terrain] = await Cesium.sampleTerrainMostDetailed(
+  viewer.terrainProvider,
+  [Cesium.Cartographic.fromDegrees(buildingLon, buildingLat)]
+);
+    const baseHeight = terrain.height;
 
-    const [pos] = await Cesium.sampleTerrainMostDetailed(
-      viewer.terrainProvider,
-      [Cesium.Cartographic.fromDegrees(cameraLng, cameraLat)]
-    );
-    
-  
-    const dest = Cesium.Cartesian3.fromDegrees(cameraLng, cameraLat, pos.height + hAGL);
-    viewer.camera.setView({
-      destination: dest,
-      orientation: {
-        heading: Cesium.Math.toRadians(heading),
-        pitch: 0,
-        roll: 0
+    viewer.entities.add({
+      polygon: {
+        hierarchy: Cesium.Cartesian3.fromDegreesArray([
+          cellWest, cellSouth,
+          cellEast, cellSouth,
+          cellEast, cellNorth,
+          cellWest, cellNorth
+        ]),
+        height: baseHeight,
+        extrudedHeight: baseHeight + d,
+        material: getColor(d),
+        outline: true,
+        outlineColor: Cesium.Color.BLACK.withAlpha(0.1)
+        
       }
     });
-
-    viewer.camera.frustum.fov = Cesium.Math.toRadians(fov);
-viewer.scene.requestRender();          // draw current view once
-
   }
-});
+}
 
-})()
+ 
+      // const maxHalfDeg = Math.max(halfWidthDeg, halfHeightDeg);
+      // const range = maxHalfDeg * 111000 * 1.2;
+      // viewer.camera.flyTo({
+      //   destination: Cesium.Cartesian3.fromDegrees(alignedLon, alignedLat, range),
+      //   orientation: { heading: 0, pitch: Cesium.Math.toRadians(-60) },
+      //   duration: 2
+      // });
+
+      const [markerSample] = await Cesium.sampleTerrainMostDetailed(
+        viewer.terrainProvider,
+        [Cesium.Cartographic.fromDegrees(buildingLon, buildingLat)]
+      );
+      viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(
+          buildingLon, buildingLat, markerSample.height + 1.5
+        ),
+        point: { pixelSize: 15, color: Cesium.Color.RED, disableDepthTestDistance: Infinity },
+        label: {
+          text: `Depth: ${value.toFixed(2)} m`,
+          font: '24px sans-serif',
+          fillColor: Cesium.Color.BLUE,
+          showBackground: true,
+          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          disableDepthTestDistance: Infinity
+        }
+      });
+
+      viewer.scene.requestRender();
+    } else if (Array.isArray(payload)) {
+      const { lng, lat, heading, fov } = payload[0];
+      const [pos2] = await Cesium.sampleTerrainMostDetailed(
+        viewer.terrainProvider,
+        [Cesium.Cartographic.fromDegrees(lng, lat)]
+      );
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(lng, lat, pos2.height + 2.05),
+        orientation: { heading: Cesium.Math.toRadians(heading), pitch: 0, roll: 0 }
+      });
+      viewer.camera.frustum.fov = Cesium.Math.toRadians(fov);
+      viewer.camera.frustum.near = 0.001; // in meters
+      viewer.scene.requestRender();
+    }
+  });
+})();
