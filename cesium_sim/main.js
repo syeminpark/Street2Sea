@@ -52,80 +52,40 @@ Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN;
       const { value, location, grid,lng,lat } = payload;
       const [latStr, lonStr] = location.split(',');
       const buildingLat = Number(latStr);
-      const buildingLon = Number(lonStr);
+      const buildingLon = Number(lonStr);ㄴ
 
-      const { depth: data, stepDeg, lon0, lat0 } = grid;
-      const numRows = data.length;
-      const numCols = data[0].length;
+      // 1. Sample terrain height at the building's center
+const centerCartographic = Cesium.Cartographic.fromDegrees(buildingLon, buildingLat);
+const [centerSample] = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [centerCartographic]);
+const baseHeight = centerSample.height;
+const floodHeight = baseHeight + value;
 
-      const alignedCol = Math.round((buildingLon - lon0) / stepDeg);
-      const alignedRow = Math.round((buildingLat - lat0) / stepDeg);
-      const alignedLon = lon0 + alignedCol * stepDeg;
-      const alignedLat = lat0 + alignedRow * stepDeg;
+// 2. Define square size (e.g., 20 meters per side)
+const halfSizeMeters = 100; // half of 20m
+const halfSizeDeg = halfSizeMeters / 111000; // convert to approx. degrees
 
-      const [terrainSample] = await Cesium.sampleTerrainMostDetailed(
-  viewer.terrainProvider,
-  [Cesium.Cartographic.fromDegrees(buildingLon, buildingLat)]
-);
-      const baseHeight = terrainSample.height;
-     
+const west = buildingLon - halfSizeDeg;
+const east = buildingLon + halfSizeDeg;
+const south = buildingLat - halfSizeDeg;
+const north = buildingLat + halfSizeDeg;
 
-      const halfWidthDeg = (numCols * stepDeg) / 2;
-      const halfHeightDeg = (numRows * stepDeg) / 2;
-      const west = alignedLon - halfWidthDeg;
-      const south = alignedLat - halfHeightDeg;
-
-      function getColor(d) {
-        const t = Math.min(Math.max(d / 5, 0), 1); // scale for visualization
-        return Cesium.Color.fromHsl(0.6 - 0.6 * t, 1.0, 0.5).withAlpha(0.6);
-      }
-      for (let r = 0; r < data.length; r++) {
-  for (let c = 0; c < data[r].length; c++) {
-    const d = data[r][c];
-     console.log('height:',d)
-    if (!Number.isFinite(d) || d <= 0) continue;
-
-    const cellWest = west + c * stepDeg;
-    const cellSouth = south + r * stepDeg;
-    const cellEast = cellWest + stepDeg;
-    const cellNorth = cellSouth + stepDeg;
-
-    const centerLon = (cellWest + cellEast) / 2;
-    const centerLat = (cellSouth + cellNorth) / 2;
-
-    const [terrain] = await Cesium.sampleTerrainMostDetailed(
-  viewer.terrainProvider,
-  [Cesium.Cartographic.fromDegrees(buildingLon, buildingLat)]
-);
-    const baseHeight = terrain.height;
-
-    viewer.entities.add({
-      polygon: {
-        hierarchy: Cesium.Cartesian3.fromDegreesArray([
-          cellWest, cellSouth,
-          cellEast, cellSouth,
-          cellEast, cellNorth,
-          cellWest, cellNorth
-        ]),
-        height: baseHeight,
-        extrudedHeight: baseHeight + d,
-        material: getColor(d),
-        outline: true,
-        outlineColor: Cesium.Color.BLACK.withAlpha(0.1)
-        
-      }
-    });
+// 3. Add the polygon
+viewer.entities.add({
+  polygon: {
+    hierarchy: Cesium.Cartesian3.fromDegreesArray([
+      west, south,
+      east, south,
+      east, north,
+      west, north
+    ]),
+    height: baseHeight,
+    extrudedHeight: floodHeight,
+    material: Cesium.Color.SKYBLUE.withAlpha(0.8),
+    outline: true,
+    outlineColor: Cesium.Color.DARKBLUE.withAlpha(0.8)
   }
-}
+});
 
- 
-      // const maxHalfDeg = Math.max(halfWidthDeg, halfHeightDeg);
-      // const range = maxHalfDeg * 111000 * 1.2;
-      // viewer.camera.flyTo({
-      //   destination: Cesium.Cartesian3.fromDegrees(alignedLon, alignedLat, range),
-      //   orientation: { heading: 0, pitch: Cesium.Math.toRadians(-60) },
-      //   duration: 2
-      // });
 
       const [markerSample] = await Cesium.sampleTerrainMostDetailed(
         viewer.terrainProvider,
