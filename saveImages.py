@@ -1,21 +1,24 @@
+# saveImages.py
 import os
 import uuid
+from typing import List, Dict
 
-
-def save_images(images: list[bytes], folder: str = "images", ext: str = "jpg") -> list[str]:
+def save_images(images: List[bytes], folder: str = "images", ext: str = "jpg") -> List[Dict[str, str]]:
     """
-    Saves a list of raw image bytes into `folder` with UUID filenames.
-    Returns list of saved file paths.
+    Save each image to `folder` as <uuid>_streetview.<ext>.
+    Returns a list of dicts: {"uuid": "<uuid>", "filename": "<file>", "path": "<abs/rel path>"}.
     """
-    os.makedirs(folder, exist_ok=True)  # ensure folder exists
-    saved_paths = []
-    UUID=uuid.uuid4()
+    os.makedirs(folder, exist_ok=True)
+    saved = []
 
     for img_bytes in images:
-        filename = f"{UUID}_streetview.{ext}"
-        file_path = os.path.join(folder, filename)
-        with open(file_path, "wb") as f:
-            f.write(img_bytes)
-        saved_paths.append(file_path)
+        uid = str(uuid.uuid4())                # string → JSON-safe
+        filename = f"{uid}_streetview.{ext}"
+        path = os.path.join(folder, filename)
 
-    return uuid
+        with open(path, "wb") as f:
+            f.write(img_bytes)
+
+        saved.append({"uuid": uid, "filename": filename, "path": path})
+
+    return saved

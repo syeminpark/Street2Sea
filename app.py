@@ -35,7 +35,6 @@ def dateConverter(data):
 
 def handle_form(data):
     try:
-        w.ensure_map_started()
         # 1) Build the address
         address = " ".join([
             data["prefecture"],
@@ -56,14 +55,16 @@ def handle_form(data):
             mode=data["mode"]
         )
         # Save them into 'images' folder
-        UUID = save_images(tiles)
-        meta["uuid"]= UUID
-
+        saved = save_images(tiles)
         w.set_street_images(tiles, metas)
+        w.ensure_map_started()
 
-        for meta in metas:
+        for meta, s in zip(metas, saved):
             meta["type"] = "camera"
+            meta["uuid"] = s["uuid"]           # <- string, JSON-safe
+
         sendToNode(metas, API_URL)
+        
 
         # 5) Download the best flood data for that datetime
         dt_fetched, resolution = find_and_download_flood_data(target_dt)
