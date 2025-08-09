@@ -8,10 +8,12 @@ const app = express();
 const PORT = process.env.PORT || 8080;   // fallback to 8080
 const HOST = process.env.HOST || 'localhost';
 const CAMERA_METADATA_ROUTE= process.env.CAMERA_METADATA_ROUTE || '/api/coords'
+const path = require('path');
 
-app.use(express.json());  
 
-let clientReady = false;
+app.use(express.json({ limit: "25mb" }));           // adjust as needed
+// If you ever POST form-data, also raise urlencoded:
+app.use(express.urlencoded({ limit: "25mb", extended: true }));
 
 /* ------------------------------------------------------------------ */
 /* 1️⃣ Dynamic root: inject your Cesium ion token into index.html      */
@@ -50,32 +52,98 @@ app.use(
 /* 3️⃣ Static assets: Cesium JS, CSS, your own JS/CSS, etc.            */
 app.use(express.static('.'))
 
-const clients = new Set();                     // store open connections
+const clients = new Set();                     // store open connectionsconst 
+backlog = [];
+const BACKLOG_LIMIT = 50;  // keep last 50 messages
+let nextEventId = 1;
 
-app.get('/events', (req, res) => {             // •••
-  res.set({                                   // headers required by SSE
-    'Content-Type' : 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection     : 'keep-alive'
+
+function enqueue(payload) {
+  const evt = {
+    id: nextEventId++,
+    // keep as already-stringified JSON so we write it directly
+    data: typeof payload === 'string' ? payload : JSON.stringify(payload),
+    ts: Date.now(),
+  };
+  backlog.push(evt);
+  while (backlog.length > BACKLOG_LIMIT) backlog.shift();
+  return evt;
+}
+
+function writeEvent(stream, evt) {
+  stream.write(`id: ${evt.id}\n`);
+  stream.write(`data: ${evt.data}\n\n`);
+}
+
+
+app.get('/events', (req, res) => {
+  res.set({
+    'Content-Type'           : 'text/event-stream',
+    'Cache-Control'          : 'no-cache',
+    'Connection'             : 'keep-alive',
+    'X-Accel-Buffering'      : 'no' // for nginx, prevents buffering
   });
-  res.flushHeaders();                          // send headers immediately
-  res.write('\n');                             // 1st blank line = ok
+  res.flushHeaders();
+  res.write('\n'); // establish stream
 
-  clients.add(res);                            // keep track
-  req.on('close', () => clients.delete(res));  // remove when tab closes
+  clients.add(res);
+
+  // 1) immediately replay backlog so we cover the "sent before JS ready" case
+  for (const evt of backlog) writeEvent(res, evt);
+
+  // 2) keep the connection alive
+  const ping = setInterval(() => res.write(`: ping ${Date.now()}\n\n`), 15000);
+
+  // 3) clean up on close
+  req.on('close', () => {
+    clearInterval(ping);
+    clients.delete(res);
+  });
 });
-
 
 app.post(CAMERA_METADATA_ROUTE, (req, res) => {
-  const payload = JSON.stringify(req.body);
+  const evt = enqueue(req.body);
 
-  // broadcast to every connected browser
+  let delivered = 0;
   for (const stream of clients) {
-    stream.write(`data: ${payload}\n\n`);
+    writeEvent(stream, evt);
+    delivered++;
   }
 
-  res.json({ status: 'ok', sentTo: clients.size });
+  res.json({
+    ok: true,
+    delivered,
+    queued: backlog.length,
+    lastEventId: evt.id
+  });
 });
+
+app.post('/save-mask', (req, res) => {
+  try {
+    const { dataUrl, filename } = req.body;
+    if (!dataUrl || !dataUrl.startsWith('data:image/png;base64,')) {
+      return res.status(400).json({ error: 'invalid dataUrl' });
+    }
+    const b64 = dataUrl.split(',')[1];
+    const buf = Buffer.from(b64, 'base64');
+
+    // write into a local folder (ensure it exists)
+    const outDir = path.join(__dirname, 'captures');
+    if (!fs.existsSync(outDir)) fs.mkdirSync(outDir);
+
+    const safeName = filename && filename.endsWith('.png') ? filename : `mask_${Date.now()}.png`;
+    const outPath = path.join(outDir, safeName);
+    fs.writeFileSync(outPath, buf);
+
+    res.json({ ok: true, path: outPath, url: `/captures/${safeName}` });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// serve the saved files
+app.use('/captures', express.static('captures'));
 
 
 /* ------------------------------------------------------------------ */
@@ -83,6 +151,3 @@ app.post(CAMERA_METADATA_ROUTE, (req, res) => {
 app.listen(PORT, () =>
   console.log(`→ http://${HOST}:${PORT}`)
 );
-
-
-

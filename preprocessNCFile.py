@@ -108,7 +108,7 @@ def floodVolumeProxy(depth,fraction):
 
 
 
-def buildDepthPatch(da, coords, filetype, radius_m=60,):
+def buildDepthPatch(da, coords, target_time, filetype, radius_m=60):
     grid_step=0
 
     if filetype.lower() in {"1m", "1min"}:
@@ -129,13 +129,17 @@ def buildDepthPatch(da, coords, filetype, radius_m=60,):
     half_cells = int(np.ceil(radius_m / grid_step))
 
     # Index of nearest grid point
-    j = int(abs(lat0 - da.lat[0].values) / da.lat.diff('lat')[0].values)
-    i = int(abs(lon0 - da.lon[0].values) / da.lon.diff('lon')[0].values)
+    abs_lat_diff = abs(lat0 - da.lat.values)
+    abs_lon_diff = abs(lon0 - da.lon.values)
+    j = np.argmin(abs_lat_diff)
+    i = np.argmin(abs_lon_diff)
 
     # Slice row/col ranges (clamp to dataset bounds)
     j0 = max(j - half_cells, 0)
     j1 = min(j + half_cells, da.sizes["lat"] - 1)
     i0 = max(i - half_cells, 0)
+
+
     i1 = min(i + half_cells, da.sizes["lon"] - 1)
 
     sub = da.isel(lat=slice(j0, j1 + 1), lon=slice(i0, i1 + 1))
@@ -152,5 +156,3 @@ def buildDepthPatch(da, coords, filetype, radius_m=60,):
     lat0    = float(sub.lat[0].values),
     stepDeg = float(sub.lon.diff('lon')[0].values)
 )
-
-

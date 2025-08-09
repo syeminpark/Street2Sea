@@ -1,6 +1,12 @@
 // main.js
-import { initNodeStream } from './receiveFromNode.js';
+import { initNodeStream,
+} from './nodeCommunication.js';
+import { attachViewLoadHUD, nextFrame} from './viewReady.js';
+import { captureAndSendIntersectedWaterMask } from "./captureIntersectedWaterMask.js";
+import { captureAndSendScene } from "./captureScene.js";
+
 Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN;
+
 
 (async () => {
   const viewer = new Cesium.Viewer('cesiumContainer', {
@@ -12,15 +18,28 @@ Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN;
     geocoder: false,
     homeButton: false,
     sceneModePicker: false,
-    navigationHelpButton: false
+    navigationHelpButton: false,
+      contextOptions: { webgl: { preserveDrawingBuffer: true } }
   });
+  window.cesiumViewer = viewer;
+  
+  viewer.scene.screenSpaceCameraController.enableInputs = false;
+  viewer.scene.globe.depthTestAgainstTerrain = true;
+viewer.scene.fxaa = false
+viewer.scene.pickTranslucentDepth = true;
+viewer.scene.useDepthPicking = true;    
+
+
+  const ctx = viewer.scene.context;
+console.log('depthTexture support:', !!ctx.depthTexture); // must be true
+console.log('webgl2:', ctx.webgl2, 'floatTex:', !!ctx.textureFloat);
 
   viewer.imageryLayers.addImageryProvider(
     new Cesium.UrlTemplateImageryProvider({
       url: '/osm/{z}/{x}/{y}.png', maximumLevel: 19, credit: '© OpenStreetMap contributors'
     })
   );
-  // viewer.scene.screenSpaceCameraController.enableInputs = false;
+
 
   const initialLon = 139.6142023961819;
   const initialLat = 35.65256823531473;
@@ -45,14 +64,14 @@ Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN;
     throttleRequests: false
   });
   viewer.scene.primitives.add(tileset);
-  await tileset.readyPromise;
+
 
   initNodeStream(viewer, async (payload) => {
     if (payload.type === 'depth') {
-      const { value, location, grid,lng,lat } = payload;
+      const { value, location} = payload;
       const [latStr, lonStr] = location.split(',');
       const buildingLat = Number(latStr);
-      const buildingLon = Number(lonStr);ㄴ
+      const buildingLon = Number(lonStr);
 
       // 1. Sample terrain height at the building's center
 const centerCartographic = Cesium.Cartographic.fromDegrees(buildingLon, buildingLat);
@@ -69,8 +88,9 @@ const east = buildingLon + halfSizeDeg;
 const south = buildingLat - halfSizeDeg;
 const north = buildingLat + halfSizeDeg;
 
-// 3. Add the polygon
-viewer.entities.add({
+
+
+const poly =viewer.entities.add({
   polygon: {
     hierarchy: Cesium.Cartesian3.fromDegreesArray([
       west, south,
@@ -84,6 +104,36 @@ viewer.entities.add({
     outline: true,
     outlineColor: Cesium.Color.DARKBLUE.withAlpha(0.8)
   }
+});
+poly.show = false; // hide the polygon
+
+// after you add your tileset(s) and await tileset.readyPromise:
+await tileset.readyPromise;
+const hud = attachViewLoadHUD(viewer, [tileset]);
+await hud.readyPromise;  
+
+
+
+await captureAndSendIntersectedWaterMask(viewer, {
+  centerLon: buildingLon,
+  centerLat: buildingLat,
+  sizeMeters: 1500,        // or compute from camera as shown earlier
+  waterLevelUp: floodHeight,
+  includeBuildings: true,  // set false for terrain-only
+   includeTerrain:true
+}, "debug_mask.png");
+
+hud.dispose();
+poly.show=true
+
+ viewer.scene.requestRender(); // ensure a fresh frame
+await nextFrame(viewer);        
+
+await captureAndSendScene(viewer, {
+  filename: "scene_2x.png",
+  resolutionScale: 2,   // 2x supersample for sharper output
+  transparent: false,   // set true if you created Viewer with webgl.alpha=true
+  hideUI: true,         // hides Cesium credit + your entities during capture
 });
 
 
@@ -106,9 +156,13 @@ viewer.entities.add({
           disableDepthTestDistance: Infinity
         }
       });
+      viewer.scene.requestRender(); // ensure a fresh frame
+      
 
-      viewer.scene.requestRender();
-    } else if (Array.isArray(payload)) {
+
+    }
+
+     else if (Array.isArray(payload)) {
       const { lng, lat, heading, fov } = payload[0];
       const [pos2] = await Cesium.sampleTerrainMostDetailed(
         viewer.terrainProvider,
@@ -120,7 +174,8 @@ viewer.entities.add({
       });
       viewer.camera.frustum.fov = Cesium.Math.toRadians(fov);
       viewer.camera.frustum.near = 0.001; // in meters
+       viewer.camera.frustum.far  = viewer.scene.globe.ellipsoid.maximumRadius * 3.0;
       viewer.scene.requestRender();
     }
   });
-})();
+})()

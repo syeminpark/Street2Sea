@@ -69,7 +69,7 @@ def handle_form(data):
             TEJapanFileType.DEPTH,
             target_dt
         )
-        
+
         depth_value, depth_time = getNearestValueByCoordinates(
             ds_depth,
             coords,
@@ -78,7 +78,15 @@ def handle_form(data):
         print(depth_value)
 
 
-
+        # depth_patch = buildDepthPatch(
+        #     ds_depth[list(ds_depth.data_vars)[0]].sel(time=depth_time),
+        #     coords,
+        #     target_dt,
+        #     ds_depth.attrs["resolution"]
+        # )
+        # depth_patch["type"] = "depth_patch"
+        # sendToNode(depth_patch, API_URL)
+        # print("depth_patch",depth_patch)
         # ❺ ── SEND TO THE FRONT-END ───────────────────────────────────────
         depth_payload = {
             "type"     : "depth",
@@ -104,5 +112,3 @@ if __name__ == "__main__":
     w.data_submitted.connect(handle_form)
     w.show()
     sys.exit(app.exec_())
-
-
