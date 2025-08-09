@@ -77,13 +77,7 @@ def handle_form(data):
         )
         print(depth_value)
 
-          # ❹ ── GRID PATCH (NEW) ────────────────────────────────────────────
-        patch = buildDepthPatch(
-            ds_depth[list(ds_depth.data_vars)[0]],  # xarray.DataArray
-            coords,               # "lat,lon"  or dict
-            filetype=ds_depth.attrs["resolution"],
-            radius_m  = 60,       # half-width
-        )
+
 
         # ❺ ── SEND TO THE FRONT-END ───────────────────────────────────────
         depth_payload = {
@@ -92,7 +86,6 @@ def handle_form(data):
             "location" : coords,
             "lat"      : metas[0]["lat"],
             "lng"      : metas[0]["lng"],
-            "grid"     : patch         # ▼ add the square patch here
         }
         sendToNode(depth_payload, API_URL)
 
