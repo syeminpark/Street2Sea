@@ -128,14 +128,14 @@ app.post('/save-mask', (req, res) => {
     const buf = Buffer.from(b64, 'base64');
 
     // write into a local folder (ensure it exists)
-    const outDir = path.join(__dirname, 'captures');
+    const outDir = path.join(__dirname, 'images');
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir);
 
     const safeName = filename && filename.endsWith('.png') ? filename : `mask_${Date.now()}.png`;
     const outPath = path.join(outDir, safeName);
     fs.writeFileSync(outPath, buf);
 
-    res.json({ ok: true, path: outPath, url: `/captures/${safeName}` });
+    res.json({ ok: true, path: outPath, url: `/images/${safeName}` });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: String(e) });
@@ -143,7 +143,7 @@ app.post('/save-mask', (req, res) => {
 });
 
 // serve the saved files
-app.use('/captures', express.static('captures'));
+app.use('/images', express.static('images'));
 
 
 /* ------------------------------------------------------------------ */

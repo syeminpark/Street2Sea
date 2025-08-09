@@ -10,6 +10,8 @@ from constants import TEJapanFileType, WebDirectory
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pythonToJS import start_node, sendToNode, wait_health
+from saveImages import save_images
+
 
 BASE_URL = f"http://{WebDirectory.HOST.value}:{WebDirectory.PORT.value}"
 API_URL  = BASE_URL + WebDirectory.CAMERA_METADATA_ROUTE.value
@@ -33,6 +35,7 @@ def dateConverter(data):
 
 def handle_form(data):
     try:
+        w.ensure_map_started()
         # 1) Build the address
         address = " ".join([
             data["prefecture"],
@@ -52,10 +55,11 @@ def handle_form(data):
             target_date=data["date"],
             mode=data["mode"]
         )
-      
-        print(metas)
+        # Save them into 'images' folder
+        UUID = save_images(tiles)
+        meta["uuid"]= UUID
+
         w.set_street_images(tiles, metas)
-        w.ensure_map_started()
 
         for meta in metas:
             meta["type"] = "camera"
@@ -77,17 +81,6 @@ def handle_form(data):
         )
         print(depth_value)
 
-
-        # depth_patch = buildDepthPatch(
-        #     ds_depth[list(ds_depth.data_vars)[0]].sel(time=depth_time),
-        #     coords,
-        #     target_dt,
-        #     ds_depth.attrs["resolution"]
-        # )
-        # depth_patch["type"] = "depth_patch"
-        # sendToNode(depth_patch, API_URL)
-        # print("depth_patch",depth_patch)
-        # ❺ ── SEND TO THE FRONT-END ───────────────────────────────────────
         depth_payload = {
             "type"     : "depth",
             "value"    : depth_value,

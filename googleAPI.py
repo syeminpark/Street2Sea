@@ -8,6 +8,7 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
 from constants import PerspectiveMode
 
+
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_STREET_VIEW_API_KEY")
 
@@ -224,3 +225,4 @@ def getStreetView(
     if mode == PerspectiveMode.SURROUNDING.value:
         return getPanoramaByDateTiles(coordinates, target_date, **kwargs)
     return getStreetViewOfBuilding(coordinates, target_date, **kwargs)
+
