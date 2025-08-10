@@ -2,6 +2,7 @@
 import os
 import uuid
 from typing import List, Dict
+import base64
 
 def save_images(images: List[bytes], folder: str = "images", ext: str = "jpg") -> List[Dict[str, str]]:
     """
@@ -22,3 +23,9 @@ def save_images(images: List[bytes], folder: str = "images", ext: str = "jpg") -
         saved.append({"uuid": uid, "filename": filename, "path": path})
 
     return saved
+
+
+def decodeImageByPath (image_path):
+    with open(image_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+    

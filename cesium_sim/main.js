@@ -6,6 +6,7 @@ import { captureAndSendIntersectedWaterMask } from "./captureIntersectedWaterMas
 import { captureAndSendScene } from "./captureScene.js";
 
 Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN;
+let UUID="";
 
 
 (async () => {
@@ -112,8 +113,6 @@ await tileset.readyPromise;
 const hud = attachViewLoadHUD(viewer, [tileset]);
 await hud.readyPromise;  
 
-
-
 await captureAndSendIntersectedWaterMask(viewer, {
   centerLon: buildingLon,
   centerLat: buildingLat,
@@ -121,7 +120,7 @@ await captureAndSendIntersectedWaterMask(viewer, {
   waterLevelUp: floodHeight,
   includeBuildings: true,  // set false for terrain-only
    includeTerrain:true
-}, "debug_mask.png");
+}, UUID+"_mask.png");
 
 hud.dispose();
 poly.show=true
@@ -130,7 +129,7 @@ poly.show=true
 await nextFrame(viewer);        
 
 await captureAndSendScene(viewer, {
-  filename: "scene_2x.png",
+  filename: UUID+"_scene.png",
   resolutionScale: 2,   // 2x supersample for sharper output
   transparent: false,   // set true if you created Viewer with webgl.alpha=true
   hideUI: true,         // hides Cesium credit + your entities during capture
@@ -157,13 +156,12 @@ await captureAndSendScene(viewer, {
         }
       });
       viewer.scene.requestRender(); // ensure a fresh frame
-      
-
 
     }
 
      else if (Array.isArray(payload)) {
-      const { lng, lat, heading, fov } = payload[0];
+      const { lng, lat, heading, fov,uuid } = payload[0];
+      UUID=uuid
       const [pos2] = await Cesium.sampleTerrainMostDetailed(
         viewer.terrainProvider,
         [Cesium.Cartographic.fromDegrees(lng, lat)]

@@ -128,7 +128,7 @@ app.post('/save-mask', (req, res) => {
     const buf = Buffer.from(b64, 'base64');
 
     // write into a local folder (ensure it exists)
-    const outDir = path.join(__dirname, 'images');
+    const outDir = path.join(__dirname,   '..', 'images');
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir);
 
     const safeName = filename && filename.endsWith('.png') ? filename : `mask_${Date.now()}.png`;
