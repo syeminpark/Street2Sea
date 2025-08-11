@@ -124,8 +124,8 @@ def _fetch_image_bytes(pano_id: str, width: int, height: int, heading: int, pitc
 def getStreetViewByDate(
     coordinates: str,
     target_date: str,
-    width: int = 600,
-    height: int = 300,
+    width: int = 500,
+    height: int = 250,
     fov: int = 120,
     heading: int = 0,
     pitch: int = 0
@@ -152,8 +152,8 @@ def getStreetViewByDate(
 def getPanoramaByDateTiles(
     coordinates: str,
     target_date: str,
-    width: int = 600,
-    height: int = 300,
+    width: int = 500,
+    height: int = 250,
     fov: int = 120,
     headings: list[int] = (0, 120, 240),
     pitch: int = 0
@@ -183,8 +183,8 @@ def getPanoramaByDateTiles(
 def getStreetViewOfBuilding(
     coordinates: str,
     target_date: str,
-    width: int = 600,
-    height: int = 300,
+    width: int = 500,
+    height: int = 250,
     pitch: int = 0,
     fov: int = 120
 ):

@@ -129,3 +129,4 @@ export async function captureAndSendIntersectedWaterMask(
   return sendCanvasAsPNG(canvas, filename);
 }
 
+

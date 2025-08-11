@@ -24,7 +24,7 @@ let UUID="";
   });
   window.cesiumViewer = viewer;
   
-  viewer.scene.screenSpaceCameraController.enableInputs = false;
+  viewer.scene.screenSpaceCameraController.enableInputs = true
   viewer.scene.globe.depthTestAgainstTerrain = true;
 viewer.scene.fxaa = false
 viewer.scene.pickTranslucentDepth = true;
@@ -69,7 +69,11 @@ console.log('webgl2:', ctx.webgl2, 'floatTex:', !!ctx.textureFloat);
 
   initNodeStream(viewer, async (payload) => {
     if (payload.type === 'depth') {
-      const { value, location} = payload;
+      const {  location,lng,lat} = payload;
+      const cameraLng=lng
+      const cameraLat= lat
+
+      const value=1.8
       const [latStr, lonStr] = location.split(',');
       const buildingLat = Number(latStr);
       const buildingLon = Number(lonStr);
@@ -77,8 +81,21 @@ console.log('webgl2:', ctx.webgl2, 'floatTex:', !!ctx.textureFloat);
       // 1. Sample terrain height at the building's center
 const centerCartographic = Cesium.Cartographic.fromDegrees(buildingLon, buildingLat);
 const [centerSample] = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [centerCartographic]);
+
 const baseHeight = centerSample.height;
 const floodHeight = baseHeight + value;
+
+
+const [cameraPos] = await Cesium.sampleTerrainMostDetailed(
+        viewer.terrainProvider,
+        [Cesium.Cartographic.fromDegrees(cameraLng, cameraLat)]
+      );
+
+// console.log('camera base height:', cameraPos.height);
+// console.log('building base height:', baseHeight);
+// console.log('flood ellipsoid Final height:', floodHeight);
+// console.log('camera Final height:', viewer.camera.positionCartographic.height);
+// console.log('is water above camera?', floodHeight > viewer.camera.positionCartographic.height);
 
 // 2. Define square size (e.g., 20 meters per side)
 const halfSizeMeters = 100; // half of 20m
@@ -122,6 +139,17 @@ await captureAndSendIntersectedWaterMask(viewer, {
    includeTerrain:true
 }, UUID+"_mask.png");
 
+
+await captureAndSendIntersectedWaterMask(viewer, {
+  centerLon: buildingLon,
+  centerLat: buildingLat,
+  sizeMeters: 1500,        // or compute from camera as shown earlier
+  waterLevelUp: floodHeight,
+  includeBuildings: false,  // set false for terrain-only
+   includeTerrain:true,
+}, UUID+"_navive_mask.png");
+
+
 hud.dispose();
 poly.show=true
 
@@ -160,14 +188,17 @@ await captureAndSendScene(viewer, {
     }
 
      else if (Array.isArray(payload)) {
-      const { lng, lat, heading, fov,uuid } = payload[0];
+      const {lat,lng, heading, fov,uuid } = payload[0];
       UUID=uuid
+      const cameraLng=lng
+      const cameraLat= lat
+
       const [pos2] = await Cesium.sampleTerrainMostDetailed(
         viewer.terrainProvider,
-        [Cesium.Cartographic.fromDegrees(lng, lat)]
+        [Cesium.Cartographic.fromDegrees(cameraLng, cameraLat)]
       );
       viewer.camera.setView({
-        destination: Cesium.Cartesian3.fromDegrees(lng, lat, pos2.height + 2.05),
+        destination: Cesium.Cartesian3.fromDegrees(cameraLng, cameraLat, pos2.height + 2.05),
         orientation: { heading: Cesium.Math.toRadians(heading), pitch: 0, roll: 0 }
       });
       viewer.camera.frustum.fov = Cesium.Math.toRadians(fov);
