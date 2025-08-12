@@ -11,6 +11,7 @@ const CAMERA_METADATA_ROUTE= process.env.CAMERA_METADATA_ROUTE || '/api/coords'
 const path = require('path');
 
 
+
 app.use(express.json({ limit: "25mb" }));           // adjust as needed
 // If you ever POST form-data, also raise urlencoded:
 app.use(express.urlencoded({ limit: "25mb", extended: true }));
