@@ -4,6 +4,9 @@ import requests, json
 from constants import WebDirectory
 import requests, time
 
+
+BASE_URL = f"http://{WebDirectory.HOST.value}:{WebDirectory.PORT.value}"
+
 def start_node():
     # ── path/to/your_repo/cesium_sim
     root = pathlib.Path(__file__).parent / "cesium_sim"
@@ -46,3 +49,5 @@ def wait_health(url, tries=20):
             pass
         time.sleep(0.1)
     raise RuntimeError("Node never reached /health")
+
+

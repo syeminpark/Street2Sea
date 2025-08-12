@@ -119,6 +119,80 @@ export async function captureIntersectedWaterMaskCanvas(
   return out; // mask canvas (B/W)
 }
 
+// --- add below your existing exports in captureIntersectedWaterMask.js ---
+
+/**
+ * Turn a B/W surface mask canvas (white = water plane visible) into a
+ * soft inpainting mask: white on surface, mid-gray on everything else.
+ * @param {HTMLCanvasElement} surfaceCanvas - output of captureIntersectedWaterMaskCanvas
+ * @param {Object} opts
+ * @param {number} opts.solidsStrength - 0..1 gray for submerged solids (0.42 ≈ 107)
+ * @param {number} opts.blurPx - feather amount in px at the boundary
+ * @returns {HTMLCanvasElement} mask canvas ready for SD inpainting
+ */
+export function makeSubmergedInpaintMask(surfaceCanvas, {
+  solidsStrength = 0.42,
+  blurPx = 2
+} = {}) {
+  const w = surfaceCanvas.width, h = surfaceCanvas.height;
+  const sctx = surfaceCanvas.getContext('2d', { willReadFrequently: true });
+  const src = sctx.getImageData(0, 0, w, h);
+
+  const out = new ImageData(w, h);
+  const solidGray = Math.round(255 * solidsStrength);
+
+  // surfaceCanvas is B/W (255 on surface, 0 elsewhere)
+  for (let i = 0; i < src.data.length; i += 4) {
+    const r = src.data[i]; // r=g=b in your B/W canvas
+    const isSurface = r > 250; // robust threshold for "white"
+    const v = isSurface ? 255 : solidGray;
+    out.data[i] = out.data[i + 1] = out.data[i + 2] = v;
+    out.data[i + 3] = 255;
+  }
+
+  // Draw to an intermediate canvas
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.putImageData(out, 0, 0);
+
+  // Feather the edge a touch to avoid seams in SD
+  if (blurPx > 0) {
+    const dst = document.createElement('canvas');
+    dst.width = w; dst.height = h;
+    const dctx = dst.getContext('2d');
+    // canvas filters are widely supported; skip if not available
+    if ('filter' in dctx) {
+      dctx.filter = `blur(${blurPx}px)`;
+      dctx.drawImage(c, 0, 0);
+      return dst;
+    }
+  }
+  return c;
+}
+
+/** Convenience: capture surface mask → convert → return canvas */
+export async function captureSubmergedInpaintMaskCanvas(
+  viewer,
+  opts,
+  maskOpts = { solidsStrength: 0.42, blurPx: 2 }
+) {
+  const surface = await captureIntersectedWaterMaskCanvas(viewer, opts);
+  return makeSubmergedInpaintMask(surface, maskOpts);
+}
+
+/** Convenience: capture + convert + send PNG */
+export async function captureAndSendSubmergedInpaintMask(
+  viewer,
+  opts,
+  filename = "water_inpaint_mask.png",
+  maskOpts = { solidsStrength: 0.42, blurPx: 2 }
+) {
+  const canvas = await captureSubmergedInpaintMaskCanvas(viewer, opts, maskOpts);
+  return sendCanvasAsPNG(canvas, filename);
+}
+
+
 /** Convenience wrapper: capture and send */
 export async function captureAndSendIntersectedWaterMask(
   viewer,

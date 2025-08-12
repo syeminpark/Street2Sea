@@ -2,7 +2,8 @@
 import { initNodeStream,
 } from './nodeCommunication.js';
 import { attachViewLoadHUD, nextFrame} from './viewReady.js';
-import { captureAndSendIntersectedWaterMask } from "./captureIntersectedWaterMask.js";
+import { captureAndSendIntersectedWaterMask,
+         captureAndSendSubmergedInpaintMask } from "./captureIntersectedWaterMask.js";
 import { captureAndSendScene } from "./captureScene.js";
 
 Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN;
@@ -73,7 +74,7 @@ console.log('webgl2:', ctx.webgl2, 'floatTex:', !!ctx.textureFloat);
       const cameraLng=lng
       const cameraLat= lat
 
-      const value=1.8
+      const value=0
       const [latStr, lonStr] = location.split(',');
       const buildingLat = Number(latStr);
       const buildingLon = Number(lonStr);
@@ -85,11 +86,10 @@ const [centerSample] = await Cesium.sampleTerrainMostDetailed(viewer.terrainProv
 const baseHeight = centerSample.height;
 const floodHeight = baseHeight + value;
 
-
-const [cameraPos] = await Cesium.sampleTerrainMostDetailed(
-        viewer.terrainProvider,
-        [Cesium.Cartographic.fromDegrees(cameraLng, cameraLat)]
-      );
+// const [cameraPos] = await Cesium.sampleTerrainMostDetailed(
+//         viewer.terrainProvider,
+//         [Cesium.Cartographic.fromDegrees(cameraLng, cameraLat)]
+//       );
 
 // console.log('camera base height:', cameraPos.height);
 // console.log('building base height:', baseHeight);
@@ -105,6 +105,7 @@ const west = buildingLon - halfSizeDeg;
 const east = buildingLon + halfSizeDeg;
 const south = buildingLat - halfSizeDeg;
 const north = buildingLat + halfSizeDeg;
+
 
 
 
@@ -130,6 +131,20 @@ await tileset.readyPromise;
 const hud = attachViewLoadHUD(viewer, [tileset]);
 await hud.readyPromise;  
 
+if(floodHeight >viewer.camera.positionCartographic.height){
+  await captureAndSendSubmergedInpaintMask(viewer, {
+    centerLon: buildingLon,
+    centerLat: buildingLat,
+    sizeMeters: 1500,
+    waterLevelUp: floodHeight,
+    includeBuildings: true,   // submerged effect should apply to everything
+    includeTerrain: true
+  }, UUID + "_underwater_mask.png", {
+    solidsStrength: 0.42,     // 0.35–0.55 works well for global haze
+    blurPx: 0                  // small feather to avoid a hard seam
+  });
+}
+else{
 await captureAndSendIntersectedWaterMask(viewer, {
   centerLon: buildingLon,
   centerLat: buildingLat,
@@ -137,7 +152,7 @@ await captureAndSendIntersectedWaterMask(viewer, {
   waterLevelUp: floodHeight,
   includeBuildings: true,  // set false for terrain-only
    includeTerrain:true
-}, UUID+"_mask.png");
+}, UUID+"_overwater_mask.png");
 
 
 await captureAndSendIntersectedWaterMask(viewer, {
@@ -147,11 +162,13 @@ await captureAndSendIntersectedWaterMask(viewer, {
   waterLevelUp: floodHeight,
   includeBuildings: false,  // set false for terrain-only
    includeTerrain:true,
-}, UUID+"_navive_mask.png");
+}, UUID+"_naive_overwater_mask.png");
+
+}
 
 
 hud.dispose();
-poly.show=true
+// poly.show=true
 
  viewer.scene.requestRender(); // ensure a fresh frame
 await nextFrame(viewer);        
@@ -189,9 +206,11 @@ await captureAndSendScene(viewer, {
 
      else if (Array.isArray(payload)) {
       const {lat,lng, heading, fov,uuid } = payload[0];
+   
       UUID=uuid
       const cameraLng=lng
       const cameraLat= lat
+         console.log()
 
       const [pos2] = await Cesium.sampleTerrainMostDetailed(
         viewer.terrainProvider,

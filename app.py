@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pythonToJS import start_node, sendToNode, wait_health
 from imageUtility import save_images
-from openAI import GPT5Client
+
 
 
 
@@ -49,12 +49,14 @@ def handle_form(data):
         coords = addressToCoordinates(address)  # e.g. "35.78,139.90"
         print("!!!building coords",coords)
         target_dt=dateConverter(data)
+        
 
         # 4) Fetch Street‑View
         tiles, metas = getStreetView(
             coords,
             target_date=data["date"],
-            mode=data["mode"]
+            mode=data["mode"],
+            tolerance_m=3
         )
         # Save them into 'images' folder
         saved = save_images(tiles)

@@ -1,7 +1,21 @@
 #!/usr/bin/env python3
-import base64, requests
+"""
+Flood inpainting via Automatic1111 API — matches current WebUI settings from screenshots:
+- Base model: sd_xl_base_1.0.safetensors [31e3c580fc]
+- Refiner: sd_xl_refiner_1.0.safetensors [7440042bbd], switch at 0.8
+- VAE: sdxl_vae.safetensors
+- Sampler: DPM++ 2M Karras
+- Steps: 36
+- CFG: 7.0
+- Denoising strength: 0.45
+- Size: 1000 x 600
+- Masked content: fill
+- Inpaint area: Whole picture
+- Mask blur: 1
+- Seed: 1311410810
+"""
+import base64, requests, json
 from pathlib import Path
-
 
 # =========================
 # CONFIG — EDIT THESE
@@ -9,183 +23,132 @@ from pathlib import Path
 BASE_URL = "https://qswa5r77ba2ky8-3001.proxy.runpod.net/"
 AUTH = None                       # ("user","pass") if your WebUI has auth, else None
 
-# list controlnet models
-print(requests.get(BASE_URL.rstrip('/') + '/controlnet/model_list').json())
-# see / set base model
-print(requests.get(BASE_URL.rstrip('/') + '/sdapi/v1/options').json()['sd_model_checkpoint'])# list controlnet models
-
-
+# Files
 STREET_IMAGE = "./images/a33648c3-6fd4-49d2-ba4c-6f9fc3d74ec8_streetview.jpg"
-MASK_IMAGE   = "./images/a33648c3-6fd4-49d2-ba4c-6f9fc3d74ec8_mask.png"        
-OUTDIR       = "outputs_no_ip"
+MASK_IMAGE   = "./images/a33648c3-6fd4-49d2-ba4c-6f9fc3d74ec8_mask.png"
+OUTDIR       = "outputs_webui_settings"
 
-WIDTH, HEIGHT = 1024, 576
-STEPS  = 26
-CFG = 9.0               # was 7.0
-DENOISE = 0.55           # was 0.42
-SAMPLER = "DPM++ 2M Karras"
+# Generation params (from WebUI)
+WIDTH, HEIGHT = 1000, 600
+STEPS  = 36
+CFG    = 7
+DENOISE = 0.55
+SEED    = 1311410810
+SAMPLER = "DPM++ 3M SDE Karras"  # schedule baked into the name for A1111 API
 
-# ControlNet (for structure). Set model string exactly as shown by /controlnet/model_list.
-USE_CONTROLNET = True
-CN_MODULE = "depth_midas"     # or "canny"
-CN_MODEL  = "diffusion_pytorch_model [4d6257d3]"
-# Prompts
-PROMPT_BASE  = "photorealistic, realistic lighting, cinematic, detailed"
-PROMPT_FLOOD = (
-  "murky floodwater covering masked ground, wet reflective surface, puddles, "
-  "ripples and small waves, foam near edges, debris, realistic refraction"
+# Inpainting (from WebUI)
+MASK_BLUR = 1
+INPAINTING_FILL = 0           # 0=fill, 1=original, 2=latent noise, 3=latent nothing
+INPAINT_FULL_RES = False      # False = Whole picture, True = Only masked
+INPAINT_PADDING  = 32         # only used when INPAINT_FULL_RES=True
+
+# Models (from WebUI)
+BASE_CKPT   = "sd_xl_base_1.0.safetensors [31e3c580fc]"
+REFINER_CKPT= "sd_xl_refiner_1.0.safetensors [7440042bbd]"
+SD_VAE      = "sdxl_vae.safetensors"
+REFINER_SWITCH_AT = 0.8
+
+# Prompts (from WebUI bars)
+PROMPT = (
+    "calm flood water filling the masked area, subtle foam along edges, high detail, photorealistic,"
 )
-
 NEGATIVE = (
-  "cartoon, CGI, glossy plastic, rainbow colors, psychedelic, fractal patterns, "
-  "oil painting, watercolor, text, watermark, oversharpen, artifacts"
+    "fence, wall, railing, poles, buildings, wood, barrier, object, debris, distortion, text, logo, "
+    "watermark, people, boats, tree, car, waves, tide, plants, brick, rock, stone, bush,"
 )
+
+# Optional: ControlNet (disabled by default to match current WebUI screenshots)
+USE_CONTROLNET = False
+CN_MODULE = "depth_midas"     # e.g., "depth_midas" or "canny"
+CN_MODEL  = ""                # fill with an SDXL ControlNet model name if you enable it
+CN_WEIGHT = 0.75
+CN_START, CN_END = 0.0, 0.85
 
 # =========================
 def b64(path): return base64.b64encode(Path(path).read_bytes()).decode("utf-8")
+
+def get(endpoint):
+    url = BASE_URL.rstrip("/") + "/sdapi/v1/" + endpoint.lstrip("/")
+    r = requests.get(url, auth=AUTH, timeout=600)
+    r.raise_for_status()
+    return r.json()
 
 def post(endpoint, payload):
     url = BASE_URL.rstrip("/") + "/sdapi/v1/" + endpoint.lstrip("/")
     r = requests.post(url, json=payload, auth=AUTH, timeout=600)
     try:
         r.raise_for_status()
-    except Exception as e:
+    except Exception:
         print("HTTP", r.status_code, "error:", r.text[:2000])
         raise
     return r.json()
 
-def save_img(img_b64, dest):
-    Path(dest).parent.mkdir(parents=True, exist_ok=True)
-    Path(dest).write_bytes(base64.b64decode(img_b64))
+def set_options():
+    # Ensure base checkpoint & VAE match WebUI
+    opts = {
+        "sd_model_checkpoint": BASE_CKPT,
+        "sd_vae": SD_VAE,
+        # If you ever need to force Clip Skip: "CLIP_stop_at_last_layers": 1
+    }
+    post("options", opts)
 
-def make_common(init_b64):
-    return dict(
-        prompt = f"{PROMPT_BASE}, {PROMPT_FLOOD}",
-        negative_prompt = NEGATIVE,
-        steps = STEPS,
-        cfg_scale = CFG,
-        denoising_strength = DENOISE,
-        sampler_name = SAMPLER,
-        width = WIDTH,
-        height = HEIGHT,
-        init_images = [init_b64],
-    )
-
-def cn_unit(image_b64, weight=1.0, res=640):
+def controlnet_unit(image_b64):
     return {
         "enabled": True,
-        "module": CN_MODULE,                 # e.g. "depth_midas" or "canny"
-        "model": CN_MODEL,                   # exact string from /controlnet/model_list
-        "weight": weight,
+        "module": CN_MODULE,
+        "model": CN_MODEL,
+        "weight": CN_WEIGHT,
         "image": image_b64,
-        "processor_res": res,
-        "resize_mode": "Scale to Fit (Inner Fit)",  # <-- was 1
-        "guidance_start": 0.0,
-        "guidance_end": 1.0,
-        "control_mode": "Balanced",          # <-- was 0
+        "processor_res": 640,
+        "resize_mode": "Scale to Fit (Inner Fit)",
+        "guidance_start": CN_START,
+        "guidance_end": CN_END,
+        "control_mode": "Balanced",
         "low_vram": False
     }
-# -------- Variants --------
-def run_rp_mask(init_b64, mask_b64):
-    payload = make_common(init_b64)
-    payload["alwayson_scripts"] = {
-        "Regional Prompter": {
-            "args": [{
-                "regions": [{
-                    "mask": mask_b64,
-                    "prompt": PROMPT_FLOOD
-                }]
-            }]
-        }
-    }
-    return post("img2img", payload)
 
-def run_inpaint_mask(init_b64, mask_b64):
-    payload = make_common(init_b64)
-    payload.update({
+def inpaint_payload(init_b64, mask_b64, use_cn=False):
+    p = {
+        "prompt": PROMPT,
+        "negative_prompt": NEGATIVE,
+        "seed": SEED,
+        "steps": STEPS,
+        "cfg_scale": CFG,
+        "denoising_strength": DENOISE,
+        "sampler_name": SAMPLER,
+        "width": WIDTH,
+        "height": HEIGHT,
+        "init_images": [init_b64],
         "mask": mask_b64,
-        "mask_blur": 3,                 # soft edge, tweak 2–6
-        "inpainting_fill": 1,           # 1 = start from ORIGINAL pixels (no crazy noise)
-        "inpaint_full_res": True,       # paint at native detail in the masked area
-        "inpaint_full_res_padding": 32, # small context border
-        "inpainting_mask_invert": 0,    # WHITE = edit, BLACK = keep
-        "only_masked": True,            # (A1111 supports this) focus compute inside mask
-        "denoising_strength": 0.42,     # gentle; raise to 0.5 if you need more water
-    })
-    return post("img2img", payload)
-
-def run_rp_mask_cn(init_b64, mask_b64, struct_b64):
-    payload = make_common(init_b64)
-    payload["alwayson_scripts"] = {
-        "Regional Prompter": {
-            "args": [{
-                "regions": [{
-                    "mask": mask_b64,
-                    "prompt": PROMPT_FLOOD
-                }]
-            }]
-        },
-        "ControlNet": {
-            "args": [ cn_unit(struct_b64) ] if USE_CONTROLNET else []
-        }
+        "mask_blur": MASK_BLUR,
+        "inpainting_fill": INPAINTING_FILL,
+        "inpaint_full_res": INPAINT_FULL_RES,
+        "inpaint_full_res_padding": INPAINT_PADDING,
+        "inpainting_mask_invert": 0,     # white edits, black keeps
+        # SDXL Refiner (matches the UI toggle + switch at)
+        "refiner_checkpoint": REFINER_CKPT,
+        "refiner_switch_at": REFINER_SWITCH_AT,
     }
-    return post("img2img", payload)
-
-
-def run_inpaint_mask_cn(init_b64, mask_b64, struct_b64):
-    payload = make_common(init_b64)
-    payload.update({
-        "mask": mask_b64,
-        "mask_blur": 3,
-        "inpainting_fill": 1,             # ORIGINAL pixels baseline
-        "inpaint_full_res": True,
-        "inpaint_full_res_padding": 32,
-        "inpainting_mask_invert": 0,
-        "only_masked": True,
-        "denoising_strength": 0.42,
-        "alwayson_scripts": {
-            "ControlNet": {
-                "args": [{
-                    "enabled": True,
-                    "module": CN_MODULE,                 # e.g. "depth_midas"
-                    "model": CN_MODEL,                   # exact string from /controlnet/model_list
-                    "weight": 0.8,                       # let depth guide, but not dominate
-                    "image": struct_b64,                 # street image as the control
-                    "processor_res": 640,
-                    "resize_mode": "Scale to Fit (Inner Fit)",
-                    "guidance_start": 0.0,
-                    "guidance_end": 1.0,
-                    "control_mode": "Balanced",
-                    "low_vram": False
-                }]
-            }
+    if use_cn:
+        p["alwayson_scripts"] = {
+            "ControlNet": {"args": [ controlnet_unit(init_b64) ]}
         }
-    })
-    return post("img2img", payload)
-
+    return p
 
 def main():
-    outdir = Path(OUTDIR); outdir.mkdir(parents=True, exist_ok=True)
+    Path(OUTDIR).mkdir(parents=True, exist_ok=True)
+    # Make sure WebUI uses the same base/refiner/vae as the screenshots
+    set_options()
+
     init_b64 = b64(STREET_IMAGE)
     mask_b64 = b64(MASK_IMAGE)
 
-    print("[1/4] Regional Prompting + Mask")
-    j1 = run_rp_mask(init_b64, mask_b64)
-    save_img(j1["images"][0], outdir / "01_rp_mask.png")
-
-    print("[2/4] Inpainting + Mask")
-    j2 = run_inpaint_mask(init_b64, mask_b64)
-    save_img(j2["images"][0], outdir / "02_inpaint_mask.png")
-
-    print("[3/4] Regional Prompting + Mask + ControlNet")
-    j3 = run_rp_mask_cn(init_b64, mask_b64, init_b64)   # use the street image as structural ref
-    save_img(j3["images"][0], outdir / "03_rp_mask_cn.png")
-
-    print("[4/4] Inpainting + Mask + ControlNet")
-    j4 = run_inpaint_mask_cn(init_b64, mask_b64, init_b64)
-    save_img(j4["images"][0], outdir / "04_inpaint_mask_cn.png")
-
-    print(f"Done. See results in: {outdir.resolve()}")
+    # Plain inpaint (matches WebUI)
+    payload = inpaint_payload(init_b64, mask_b64, use_cn=USE_CONTROLNET)
+    result = post("img2img", payload)
+    out_path = Path(OUTDIR) / "inpaint_webui_settings.png"
+    out_path.write_bytes(base64.b64decode(result["images"][0]))
+    print(f"Saved: {out_path.resolve()}")
 
 if __name__ == "__main__":
     main()
