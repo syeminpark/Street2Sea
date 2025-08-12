@@ -76,3 +76,34 @@ export function nextFrame(viewer) {
     viewer.scene.requestRender();
   });
 }
+
+// Put near the top, after you declare overlay / waterEntity / markerEntity
+export async function withOverlayHidden(viewer, waterEntity, markerEntity, run) {
+  const prev = {
+    near: viewer.camera.frustum.near,
+    water: waterEntity?.show ?? null,
+    marker: markerEntity?.show ?? null,
+  };
+
+  // hide things that could “paint” into the mask
+  if (waterEntity) waterEntity.show = false;
+  if (markerEntity) markerEntity.show = false;
+
+  // bump near plane to reduce depth noise while masking
+  viewer.camera.frustum.near = Math.max(prev.near, 0.5);
+
+  viewer.scene.requestRender();
+  await nextFrame(viewer);
+
+  try {
+    return await run();
+  } finally {
+    // restore previous state
+    if (waterEntity && prev.water !== null)  waterEntity.show  = prev.water;
+    if (markerEntity && prev.marker !== null) markerEntity.show = prev.marker;
+    viewer.camera.frustum.near = prev.near;
+
+    viewer.scene.requestRender();
+    await nextFrame(viewer);
+  }
+}

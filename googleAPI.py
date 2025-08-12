@@ -15,7 +15,7 @@ from constants import PerspectiveMode
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_STREET_VIEW_API_KEY")
 SV_USE_JS_OUTDOOR = os.getenv("SV_USE_JS_OUTDOOR", "0") == "1"
-SV_OUTDOOR_ENDPOINT = os.getenv("SV_OUTDOOR_ENDPOINT", "http://localhost:8080/find-outdoor-js")
+SV_OUTDOOR_ENDPOINT = os.getenv("SV_OUTDOOR_ENDPOINT", "http://localhost:8000/find-outdoor-js")
 SV_JS_FALLBACK_TO_CORE = os.getenv("SV_JS_FALLBACK_TO_CORE", "1") == "1"
 
 _meta_cache: dict[str, object] = {}

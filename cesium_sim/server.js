@@ -5,7 +5,7 @@ const fs                     = require('fs');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
-const PORT = process.env.PORT || 8080;   // fallback to 8080
+const PORT = process.env.PORT || 8000;
 const HOST = process.env.HOST || 'localhost';
 const CAMERA_METADATA_ROUTE= process.env.CAMERA_METADATA_ROUTE || '/api/coords'
 const path = require('path');

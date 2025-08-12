@@ -1,14 +1,23 @@
 // main.js
-import { initNodeStream,
-} from './nodeCommunication.js';
-import { attachViewLoadHUD, nextFrame} from './viewReady.js';
-import { captureAndSendIntersectedWaterMask,
-         captureAndSendSubmergedInpaintMask } from "./captureIntersectedWaterMask.js";
-import { captureAndSendScene } from "./captureScene.js";
+import { initNodeStream } from './nodeCommunication.js';
+import { attachViewLoadHUD, nextFrame } from './viewReady.js';
+import {
+  captureAndSendIntersectedWaterMask,
+  captureAndSendSubmergedInpaintMask
+} from './captureIntersectedWaterMask.js';
+import { captureAndSendScene } from './captureScene.js';
+import {withOverlayHidden} from './viewReady.js'
+
 
 Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN;
-let UUID="";
+let UUID = "";
 
+// ---- scene/overlay behavior knobs ---------------------------------
+const SHOW_WATER_IN_SCENE  = true;   // water plane visible in final screenshot
+const SHOW_MARKER_IN_SCENE = true;   // depth label visible in final screenshot
+const WATER_EPS_M          = 0.25;   // deadband: skip masks if depth <= this
+const HALF_SIZE_METERS     = 100;    // half-width of the local water box
+// -------------------------------------------------------------------
 
 (async () => {
   const viewer = new Cesium.Viewer('cesiumContainer', {
@@ -21,27 +30,27 @@ let UUID="";
     homeButton: false,
     sceneModePicker: false,
     navigationHelpButton: false,
-      contextOptions: { webgl: { preserveDrawingBuffer: true } }
+    contextOptions: { webgl: { preserveDrawingBuffer: true } }
   });
   window.cesiumViewer = viewer;
-  
-  viewer.scene.screenSpaceCameraController.enableInputs = true
-  viewer.scene.globe.depthTestAgainstTerrain = true;
-viewer.scene.fxaa = false
-viewer.scene.pickTranslucentDepth = true;
-viewer.scene.useDepthPicking = true;    
 
+  viewer.scene.screenSpaceCameraController.enableInputs = true;
+  viewer.scene.globe.depthTestAgainstTerrain = true;
+  viewer.scene.fxaa = false;
+  viewer.scene.pickTranslucentDepth = true;
+  viewer.scene.useDepthPicking = true;
 
   const ctx = viewer.scene.context;
-console.log('depthTexture support:', !!ctx.depthTexture); // must be true
-console.log('webgl2:', ctx.webgl2, 'floatTex:', !!ctx.textureFloat);
+  console.log('depthTexture support:', !!ctx.depthTexture);
+  console.log('webgl2:', ctx.webgl2, 'floatTex:', !!ctx.textureFloat);
 
   viewer.imageryLayers.addImageryProvider(
     new Cesium.UrlTemplateImageryProvider({
-      url: '/osm/{z}/{x}/{y}.png', maximumLevel: 19, credit: '© OpenStreetMap contributors'
+      url: '/osm/{z}/{x}/{y}.png',
+      maximumLevel: 19,
+      credit: '© OpenStreetMap contributors'
     })
   );
-
 
   const initialLon = 139.6142023961819;
   const initialLat = 35.65256823531473;
@@ -67,131 +76,52 @@ console.log('webgl2:', ctx.webgl2, 'floatTex:', !!ctx.textureFloat);
   });
   viewer.scene.primitives.add(tileset);
 
+  // ---------- Single overlay & reusable entities ----------
+  const overlay = new Cesium.CustomDataSource('overlay');
+  await viewer.dataSources.add(overlay);
 
-  initNodeStream(viewer, async (payload) => {
-    if (payload.type === 'depth') {
-      const {  location,lng,lat} = payload;
-      const cameraLng=lng
-      const cameraLat= lat
+  let waterEntity = null;   // polygon reused in-place
+  let markerEntity = null;  // point+label reused in-place
 
-      const value=0
-      const [latStr, lonStr] = location.split(',');
-      const buildingLat = Number(latStr);
-      const buildingLon = Number(lonStr);
-
-      // 1. Sample terrain height at the building's center
-const centerCartographic = Cesium.Cartographic.fromDegrees(buildingLon, buildingLat);
-const [centerSample] = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [centerCartographic]);
-
-const baseHeight = centerSample.height;
-const floodHeight = baseHeight + value;
-
-// const [cameraPos] = await Cesium.sampleTerrainMostDetailed(
-//         viewer.terrainProvider,
-//         [Cesium.Cartographic.fromDegrees(cameraLng, cameraLat)]
-//       );
-
-// console.log('camera base height:', cameraPos.height);
-// console.log('building base height:', baseHeight);
-// console.log('flood ellipsoid Final height:', floodHeight);
-// console.log('camera Final height:', viewer.camera.positionCartographic.height);
-// console.log('is water above camera?', floodHeight > viewer.camera.positionCartographic.height);
-
-// 2. Define square size (e.g., 20 meters per side)
-const halfSizeMeters = 100; // half of 20m
-const halfSizeDeg = halfSizeMeters / 111000; // convert to approx. degrees
-
-const west = buildingLon - halfSizeDeg;
-const east = buildingLon + halfSizeDeg;
-const south = buildingLat - halfSizeDeg;
-const north = buildingLat + halfSizeDeg;
-
-
-
-
-const poly =viewer.entities.add({
-  polygon: {
-    hierarchy: Cesium.Cartesian3.fromDegreesArray([
+  function upsertWaterBox({ west, east, south, north, baseHeight, floodHeight }) {
+    const hierarchy = Cesium.Cartesian3.fromDegreesArray([
       west, south,
       east, south,
       east, north,
       west, north
-    ]),
-    height: baseHeight,
-    extrudedHeight: floodHeight,
-    material: Cesium.Color.SKYBLUE.withAlpha(0.8),
-    outline: true,
-    outlineColor: Cesium.Color.DARKBLUE.withAlpha(0.8)
+    ]);
+
+    if (!waterEntity) {
+      waterEntity = overlay.entities.add({
+        polygon: {
+          hierarchy,
+          height: baseHeight,
+          extrudedHeight: floodHeight,
+          material: Cesium.Color.SKYBLUE.withAlpha(0.8),
+          outline: true,
+          outlineColor: Cesium.Color.DARKBLUE.withAlpha(0.8)
+        },
+        show: false // keep hidden during mask capture; shown for scene per flags
+      });
+    } else {
+      waterEntity.polygon.hierarchy = hierarchy;
+      waterEntity.polygon.height = baseHeight;
+      waterEntity.polygon.extrudedHeight = floodHeight;
+    }
+    viewer.scene.requestRender();
+    return waterEntity;
   }
-});
-poly.show = false; // hide the polygon
 
-// after you add your tileset(s) and await tileset.readyPromise:
-await tileset.readyPromise;
-const hud = attachViewLoadHUD(viewer, [tileset]);
-await hud.readyPromise;  
+  function upsertMarker({ lon, lat, height, depthValue }) {
+    const pos = Cesium.Cartesian3.fromDegrees(lon, lat, height + 1.5);
+    const text = `Depth: ${Number(depthValue || 0).toFixed(2)} m`;
 
-if(floodHeight >viewer.camera.positionCartographic.height){
-  await captureAndSendSubmergedInpaintMask(viewer, {
-    centerLon: buildingLon,
-    centerLat: buildingLat,
-    sizeMeters: 1500,
-    waterLevelUp: floodHeight,
-    includeBuildings: true,   // submerged effect should apply to everything
-    includeTerrain: true
-  }, UUID + "_underwater_mask.png", {
-    solidsStrength: 0.42,     // 0.35–0.55 works well for global haze
-    blurPx: 0                  // small feather to avoid a hard seam
-  });
-}
-else{
-await captureAndSendIntersectedWaterMask(viewer, {
-  centerLon: buildingLon,
-  centerLat: buildingLat,
-  sizeMeters: 1500,        // or compute from camera as shown earlier
-  waterLevelUp: floodHeight,
-  includeBuildings: true,  // set false for terrain-only
-   includeTerrain:true
-}, UUID+"_overwater_mask.png");
-
-
-await captureAndSendIntersectedWaterMask(viewer, {
-  centerLon: buildingLon,
-  centerLat: buildingLat,
-  sizeMeters: 1500,        // or compute from camera as shown earlier
-  waterLevelUp: floodHeight,
-  includeBuildings: false,  // set false for terrain-only
-   includeTerrain:true,
-}, UUID+"_naive_overwater_mask.png");
-
-}
-
-
-hud.dispose();
-// poly.show=true
-
- viewer.scene.requestRender(); // ensure a fresh frame
-await nextFrame(viewer);        
-
-await captureAndSendScene(viewer, {
-  filename: UUID+"_scene.png",
-  resolutionScale: 2,   // 2x supersample for sharper output
-  transparent: false,   // set true if you created Viewer with webgl.alpha=true
-  hideUI: true,         // hides Cesium credit + your entities during capture
-});
-
-
-      const [markerSample] = await Cesium.sampleTerrainMostDetailed(
-        viewer.terrainProvider,
-        [Cesium.Cartographic.fromDegrees(buildingLon, buildingLat)]
-      );
-      viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(
-          buildingLon, buildingLat, markerSample.height + 1.5
-        ),
+    if (!markerEntity) {
+      markerEntity = overlay.entities.add({
+        position: pos,
         point: { pixelSize: 15, color: Cesium.Color.RED, disableDepthTestDistance: Infinity },
         label: {
-          text: `Depth: ${value.toFixed(2)} m`,
+          text,
           font: '24px sans-serif',
           fillColor: Cesium.Color.BLUE,
           showBackground: true,
@@ -200,30 +130,144 @@ await captureAndSendScene(viewer, {
           disableDepthTestDistance: Infinity
         }
       });
-      viewer.scene.requestRender(); // ensure a fresh frame
+    } else {
+      markerEntity.position = pos;
+      markerEntity.label.text = text;
+    }
+    viewer.scene.requestRender();
+    return markerEntity;
+  }
 
+  initNodeStream(viewer, async (payload) => {
+    // DEPTH PAYLOAD
+    if (payload && payload.type === 'depth') {
+      const { location, lng, lat, value } = payload;     // value is your flood depth (meters)
+      const depth = Number(value || 0);
+
+      // coords in "lat,lng" order (from your Python)
+      const [latStr, lonStr] = String(location).split(',');
+      const buildingLat = Number(latStr);
+      const buildingLon = Number(lonStr);
+
+      // 1) terrain height at building center
+      const centerCarto = Cesium.Cartographic.fromDegrees(buildingLon, buildingLat);
+      const [centerSample] = await Cesium.sampleTerrainMostDetailed(
+        viewer.terrainProvider, [centerCarto]
+      );
+
+      const baseHeight   = centerSample.height;
+      const floodHeight  = baseHeight + depth;     // geometric water level used for masks/box
+
+      // 2) water-box footprint
+      const halfSizeDeg = HALF_SIZE_METERS / 111000;
+      const west  = buildingLon - halfSizeDeg;
+      const east  = buildingLon + halfSizeDeg;
+      const south = buildingLat - halfSizeDeg;
+      const north = buildingLat + halfSizeDeg;
+
+      // update (or create) the reusable water polygon
+      upsertWaterBox({ west, east, south, north, baseHeight, floodHeight });
+
+      // 3) wait for tileset & HUD to settle
+      await tileset.readyPromise;
+      const hud = attachViewLoadHUD(viewer, [tileset]);
+      await hud.readyPromise;
+
+      // 4) generate masks with overlay hidden (and skip if near-zero depth)
+      const needMask = Math.abs(depth) > WATER_EPS_M;
+      if (needMask) {
+        await withOverlayHidden(viewer,waterEntity,markerEntity, async () => {
+          if (floodHeight > viewer.camera.positionCartographic.height) {
+            await captureAndSendSubmergedInpaintMask(viewer, {
+              centerLon: buildingLon,
+              centerLat: buildingLat,
+              sizeMeters: 1500,
+              waterLevelUp: floodHeight,
+              includeBuildings: true,
+              includeTerrain: true
+            }, `${UUID}_underwater_mask.png`, {
+              solidsStrength: 0.42,
+              blurPx: 0
+            });
+          } else {
+            await captureAndSendIntersectedWaterMask(viewer, {
+              centerLon: buildingLon,
+              centerLat: buildingLat,
+              sizeMeters: 1500,
+              waterLevelUp: floodHeight,
+              includeBuildings: true,
+              includeTerrain: true
+            }, `${UUID}_overwater_mask.png`);
+
+            await captureAndSendIntersectedWaterMask(viewer, {
+              centerLon: buildingLon,
+              centerLat: buildingLat,
+              sizeMeters: 1500,
+              waterLevelUp: floodHeight,
+              includeBuildings: false,
+              includeTerrain: true
+            }, `${UUID}_naive_overwater_mask.png`);
+          }
+        });
+      }
+
+      hud.dispose();
+
+      // 5) show what you want visible for the pretty scene export
+      const prevShows = {
+        water: waterEntity?.show ?? null,
+        marker: markerEntity?.show ?? null
+      };
+      if (waterEntity)  waterEntity.show  = !!SHOW_WATER_IN_SCENE;
+      if (markerEntity) markerEntity.show = !!SHOW_MARKER_IN_SCENE;
+
+      viewer.scene.requestRender();
+      await nextFrame(viewer);
+
+      await captureAndSendScene(viewer, {
+        filename: `${UUID}_scene.png`,
+        resolutionScale: 2,
+        transparent: false,
+        hideUI: true
+      });
+
+      // restore previous visibility
+      // if (waterEntity && prevShows.water  !== null) waterEntity.show  = prevShows.water;
+      if (markerEntity && prevShows.marker !== null) markerEntity.show = prevShows.marker;
+
+      // 6) update / place the single marker
+      const [markerSample] = await Cesium.sampleTerrainMostDetailed(
+        viewer.terrainProvider,
+        [Cesium.Cartographic.fromDegrees(buildingLon, buildingLat)]
+      );
+      upsertMarker({
+        lon: buildingLon,
+        lat: buildingLat,
+        height: markerSample.height,
+        depthValue: depth
+      });
+
+      viewer.scene.requestRender();
     }
 
-     else if (Array.isArray(payload)) {
-      const {lat,lng, heading, fov,uuid } = payload[0];
-   
-      UUID=uuid
-      const cameraLng=lng
-      const cameraLat= lat
-         console.log()
+    // CAMERA (array from metas)
+    else if (Array.isArray(payload)) {
+      const { lat, lng, heading, fov, uuid } = payload[0];
+      if (uuid) UUID = uuid; // remember for filenames
 
       const [pos2] = await Cesium.sampleTerrainMostDetailed(
         viewer.terrainProvider,
-        [Cesium.Cartographic.fromDegrees(cameraLng, cameraLat)]
+        [Cesium.Cartographic.fromDegrees(lng, lat)]
       );
       viewer.camera.setView({
-        destination: Cesium.Cartesian3.fromDegrees(cameraLng, cameraLat, pos2.height + 2.05),
-        orientation: { heading: Cesium.Math.toRadians(heading), pitch: 0, roll: 0 }
+        destination: Cesium.Cartesian3.fromDegrees(lng, lat, pos2.height + 2.05),
+        orientation: { heading: Cesium.Math.toRadians(heading || 0), pitch: 0, roll: 0 }
       });
-      viewer.camera.frustum.fov = Cesium.Math.toRadians(fov);
-      viewer.camera.frustum.near = 0.001; // in meters
-       viewer.camera.frustum.far  = viewer.scene.globe.ellipsoid.maximumRadius * 3.0;
+      viewer.camera.frustum.fov  = Cesium.Math.toRadians(fov || 120);
+      viewer.camera.frustum.near = 0.001;
+      viewer.camera.frustum.far  = viewer.scene.globe.ellipsoid.maximumRadius * 3.0;
+
       viewer.scene.requestRender();
     }
   });
-})()
+})();
