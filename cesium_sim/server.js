@@ -79,28 +79,24 @@ function writeEvent(stream, evt) {
 
 app.get('/events', (req, res) => {
   res.set({
-    'Content-Type'           : 'text/event-stream',
-    'Cache-Control'          : 'no-cache',
-    'Connection'             : 'keep-alive',
-    'X-Accel-Buffering'      : 'no' // for nginx, prevents buffering
+    'Content-Type':'text/event-stream',
+    'Cache-Control':'no-cache',
+    'Connection':'keep-alive',
+    'X-Accel-Buffering':'no'
   });
   res.flushHeaders();
-  res.write('\n'); // establish stream
+  res.write('retry: 15000\n\n'); // advise reconnection delay
 
   clients.add(res);
 
-  // 1) immediately replay backlog so we cover the "sent before JS ready" case
-  for (const evt of backlog) writeEvent(res, evt);
+  const last = Number(req.get('Last-Event-ID') || req.query.lastEventId || 0);
+  const toReplay = last ? backlog.filter(e => e.id > last) : backlog;
+  for (const evt of toReplay) writeEvent(res, evt);
 
-  // 2) keep the connection alive
   const ping = setInterval(() => res.write(`: ping ${Date.now()}\n\n`), 15000);
-
-  // 3) clean up on close
-  req.on('close', () => {
-    clearInterval(ping);
-    clients.delete(res);
-  });
+  req.on('close', () => { clearInterval(ping); clients.delete(res); });
 });
+
 
 app.post(CAMERA_METADATA_ROUTE, (req, res) => {
   const evt = enqueue(req.body);

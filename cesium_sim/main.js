@@ -163,7 +163,6 @@ const HALF_SIZE_METERS     = 100;    // half-width of the local water box
       
 
 // Sanity log
-console.log("inputs:", buildingLon, buildingLat, HALF_SIZE_METERS );
 
 const rect = rectFromCenterMeters_ENU(buildingLon, buildingLat, HALF_SIZE_METERS, 0);
 

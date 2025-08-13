@@ -57,6 +57,7 @@ def dateConverter(data):
 
 # app.py
 def handle_form(data):
+    print('submit')
     try:
         # 1) Build the address (unchanged)
         address = " ".join([data["prefecture"], data["city"], data["town"], data["address2"]])
@@ -66,6 +67,7 @@ def handle_form(data):
 
         # 3) Time zone conversion (still useful for logs/consistency)
         target_dt = dateConverter(data)
+    
 
         # 4) Fetch Street-View (unchanged)
         tiles, metas = getStreetView(
@@ -78,11 +80,14 @@ def handle_form(data):
         )
         saved = save_images(tiles)
         w.set_street_images(tiles, metas)
+        
         w.ensure_map_started()
         for meta, s in zip(metas, saved):
             meta["type"] = "camera"
             meta["uuid"] = s["uuid"]
         sendToNode(metas, API_URL)
+
+
 
         # NEW 5) Depth: use override if provided
         if data.get("depth_override_enabled"):
@@ -111,7 +116,7 @@ def handle_form(data):
         QMessageBox.warning(w, "Error", msg)
 
 
-
+mask_thread = None
 if __name__ == "__main__":
     start_node()
     wait_health(BASE_URL+"/health")

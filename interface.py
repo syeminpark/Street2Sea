@@ -72,6 +72,9 @@ class AddressForm(AddressFormUI):
         self.depth_override_cb.toggled.connect(self.update_submit_state)
         self.depth_override_spin.valueChanged.connect(self.update_submit_state)
 
+        self.submit_btn.setDefault(False)
+        self.submit_btn.setAutoDefault(False)
+
 
     def update_submit_state(self):
         has_postal = bool(self.postal.text().strip())
@@ -107,6 +110,11 @@ class AddressForm(AddressFormUI):
         self.update_submit_state()
 
     def _on_submit(self):
+        # Ignore anything that isn't the actual button click
+        if self.sender() is not self.submit_btn:
+            self.log.append("Ignored non-button submit trigger.")
+            return
+
         mode = (
             PerspectiveMode.SURROUNDING if self.rb_surrounding.isChecked()
             else PerspectiveMode.BUILDING
