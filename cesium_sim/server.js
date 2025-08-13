@@ -128,13 +128,21 @@ app.post('/save-mask', (req, res) => {
     const b64 = dataUrl.split(',')[1];
     const buf = Buffer.from(b64, 'base64');
 
-    // write into a local folder (ensure it exists)
-    const outDir = path.join(__dirname,   '..', 'images');
+    const outDir = path.join(__dirname, '..', 'images');
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir);
 
     const safeName = filename && filename.endsWith('.png') ? filename : `mask_${Date.now()}.png`;
-    const outPath = path.join(outDir, safeName);
+    const outPath  = path.join(outDir, safeName);
     fs.writeFileSync(outPath, buf);
+
+    // 🔔 NEW: fire an SSE event so Python knows a mask arrived
+    // Expect filenames like "<uuid>_overwater_mask.png" or "<uuid>_underwater_mask.png"
+    const m = safeName.match(/^(.+?)_(?:overwater|underwater)_mask\.png$/);
+    if (m) {
+      enqueue({ type: 'mask-saved', uuid: m[1], filename: safeName, url: `/images/${safeName}` });
+      // deliver immediately to all connected clients
+      for (const stream of clients) writeEvent(stream, backlog[backlog.length - 1]);
+    }
 
     res.json({ ok: true, path: outPath, url: `/images/${safeName}` });
   } catch (e) {
@@ -142,6 +150,7 @@ app.post('/save-mask', (req, res) => {
     res.status(500).json({ error: String(e) });
   }
 });
+
 
 // serve the saved files
 app.use('/images', express.static('images'));

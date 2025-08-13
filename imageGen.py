@@ -1,8 +1,9 @@
 # imageGen.py
-import base64, json, os, time
+import base64, requests, json, os
 from pathlib import Path
 import requests
 from dotenv import load_dotenv, find_dotenv
+import re
 
 try:
     from PIL import Image
@@ -18,19 +19,21 @@ AUTH = None  # set to ("user","pass") if your WebUI is auth-protected
 STEPS   = 36
 CFG     = 7
 DENOISE = 0.55
-SEED    = 1311410810
+SEED    = -1
 SAMPLER = "DPM++ 3M SDE Karras"
 
-BASE_CKPT    = "sd_xl_base_1.0.safetensors [31e3c580fc]"
+BASE_CKPT    = "sd_xl_base_1.0.safetensors [31e35c80fc]"
 REFINER_CKPT = "sd_xl_refiner_1.0.safetensors [7440042bbd]"
 SD_VAE       = "sdxl_vae.safetensors"
 REFINER_SWITCH_AT = 0.8
+TARGET_W = 1024
+TARGET_H = 1024
 
 PROMPT = (
     "calm flood water filling the masked area, subtle foam along edges, high detail, photorealistic"
 )
 NEGATIVE = (
-    "fence, wall, railing, poles, buildings, wood, barrier, object, debris, distortion, text, logo, "
+    "fence, wall, twrils, railing, poles, buildings, wood, barrier, object, debris, distortion, text, logo, "
     "watermark, people, boats, tree, car, waves, tide, plants, brick, rock, stone, bush"
 )
 
@@ -38,6 +41,7 @@ MASK_BLUR = 1
 INPAINTING_FILL = 0
 INPAINT_FULL_RES = False
 INPAINT_PADDING  = 32
+RESIZE_MODE = 0
 
 # ------------- helpers -------------
 def _b64(path: str) -> str:
@@ -95,7 +99,8 @@ def generate_from_files(street_image: str, mask_image: str, out_path: str) -> st
 
     _set_options()
 
-    W, H = _img_size(street_image)
+    _orig_w, _orig_h = _img_size(street_image)
+    W, H = TARGET_W, TARGET_H
     init_b64 = _b64(street_image)
     mask_b64 = _b64(mask_image)
 
@@ -118,6 +123,7 @@ def generate_from_files(street_image: str, mask_image: str, out_path: str) -> st
         "inpainting_mask_invert": 0,  # white edits, black keeps
         "refiner_checkpoint": REFINER_CKPT,
         "refiner_switch_at": REFINER_SWITCH_AT,
+          "resize_mode": RESIZE_MODE, 
     }
 
     result = _post("img2img", payload)
@@ -129,18 +135,33 @@ def generate_from_files(street_image: str, mask_image: str, out_path: str) -> st
     return out_path
 
 
+
+
+
+UUID_RE = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}")
+
+def _normalize_uuid(u: str) -> str:
+    # Extract bare UUID even if u is "…_naive" or has other suffixes
+    m = UUID_RE.search(u)
+    return m.group(0) if m else u.split("_")[0]
+
 def generate_from_uuid(uuid: str, images_dir="images") -> str:
-    """
-    Convenience wrapper that picks input files by UUID and writes:
-      images/<uuid>_ai.png
-    """
-    street = Path(images_dir) / f"{uuid}_streetview.jpg"
-    over   = Path(images_dir) / f"{uuid}_overwater_mask.png"
+    d = Path(images_dir)
+    base = _normalize_uuid(uuid)
 
-    if over.exists():
-        mask = over
-    else:
-        raise FileNotFoundError(f"Mask not found for UUID {uuid} (looked for {over.name} / {under.name})")
+    # Streetview (no naive variants expected, but handle base uuid mismatch)
+    street_candidates = sorted(d.glob(f"{base}*streetview.jpg"))
+    if not street_candidates:
+        raise FileNotFoundError(f"No streetview found for {base}")
+    # Prefer exact "<uuid>_streetview.jpg" if present
+    exact = d / f"{base}_streetview.jpg"
+    street = exact if exact in street_candidates else street_candidates[0]
 
-    out_path = Path(images_dir) / f"{uuid}_ai.png"
+    # Mask: ignore *_naive_overwater_mask.png
+    mask_candidates = [p for p in d.glob(f"{base}*_overwater_mask.png") if "_naive" not in p.name.lower()]
+    if not mask_candidates:
+        raise FileNotFoundError(f"No non-naive overwater mask found for {base}")
+    mask = sorted(mask_candidates)[0]
+
+    out_path = d / f"{base}_ai.png"
     return generate_from_files(str(street), str(mask), str(out_path))

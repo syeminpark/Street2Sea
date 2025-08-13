@@ -1,15 +1,15 @@
 # interface_ui.py
 
-import json
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QDateEdit, QLineEdit, QPushButton, QTextEdit, QLabel,
     QSizePolicy, QRadioButton, QButtonGroup, QTimeEdit, QComboBox,
-    QApplication, QDesktopWidget
+    QApplication, QDesktopWidget, QCheckBox, QDoubleSpinBox    # <- add
 )
 from PyQt5.QtCore import QDate, QTime, Qt
 from pykakasi import kakasi
 from interface_utility import make_autofill_on_tab
+from clickable_label import ClickableLabel
 
 class AddressFormUI(QWidget):
     """
@@ -17,8 +17,8 @@ class AddressFormUI(QWidget):
     """
     def __init__(self):
         # fixed box size for all image panels
-        self.boxWidth  = 500
-        self.boxHeight = 300
+        self.boxWidth  = 320
+        self.boxHeight = 320
         super().__init__()
         self._build_ui()
         make_autofill_on_tab(self.postal)
@@ -33,7 +33,8 @@ class AddressFormUI(QWidget):
         pv.setSpacing(5)
         pv.addWidget(self._make_title(title), alignment=Qt.AlignCenter)
 
-        lbl = QLabel(alignment=Qt.AlignCenter)
+        lbl = ClickableLabel(alignment=Qt.AlignCenter)
+        lbl.setCursor(Qt.PointingHandCursor)
         lbl.setStyleSheet("border: 2px solid #555;")
         # 1) fix the size of the box
         lbl.setFixedSize(self.boxWidth, self.boxHeight)
@@ -53,7 +54,7 @@ class AddressFormUI(QWidget):
     def _build_ui(self):
         # Window
         screen = QDesktopWidget().availableGeometry(self)
-        w = int(screen.width() * 0.95)
+        w = int(screen.width() * 0.7)
         h = int(screen.height() * 0.95)
         self.setMinimumSize(w, h)
         self.resize(w, h)
@@ -125,6 +126,20 @@ class AddressFormUI(QWidget):
         self.mode_group.addButton(self.rb_building)
         self.mode_group.addButton(self.rb_surrounding)
         rows.addRow("Perspective Mode:", mode_layout)
+
+        ov_layout = QHBoxLayout()
+        self.depth_override_cb = QCheckBox("Override depth (m)")
+        self.depth_override_spin = QDoubleSpinBox()
+        self.depth_override_spin.setRange(0.0, 100.0)      # meters; adjust if you need more
+        self.depth_override_spin.setDecimals(2)
+        self.depth_override_spin.setSingleStep(0.05)
+        self.depth_override_spin.setValue(1.00)
+        self.depth_override_spin.setEnabled(False)         # enabled only when checked
+        self.depth_override_cb.toggled.connect(self.depth_override_spin.setEnabled)
+        ov_layout.addWidget(self.depth_override_cb)
+        ov_layout.addWidget(self.depth_override_spin)
+        rows.addRow("Flood Depth:", ov_layout)
+
 
         fv.addLayout(rows)
         fv.addStretch(1)

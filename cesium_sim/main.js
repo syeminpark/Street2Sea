@@ -7,7 +7,7 @@ import {
 } from './captureIntersectedWaterMask.js';
 import { captureAndSendScene } from './captureScene.js';
 import {withOverlayHidden} from './viewReady.js'
-
+import { rectFromCenterMeters_ENU } from './myPlane.js';
 
 Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN;
 let UUID = "";
@@ -34,7 +34,7 @@ const HALF_SIZE_METERS     = 100;    // half-width of the local water box
   });
   window.cesiumViewer = viewer;
 
-  viewer.scene.screenSpaceCameraController.enableInputs = true;
+  viewer.scene.screenSpaceCameraController.enableInputs = false;
   viewer.scene.globe.depthTestAgainstTerrain = true;
   viewer.scene.fxaa = false;
   viewer.scene.pickTranslucentDepth = true;
@@ -82,6 +82,7 @@ const HALF_SIZE_METERS     = 100;    // half-width of the local water box
 
   let waterEntity = null;   // polygon reused in-place
   let markerEntity = null;  // point+label reused in-place
+
 
   function upsertWaterBox({ west, east, south, north, baseHeight, floodHeight }) {
     const hierarchy = Cesium.Cartesian3.fromDegreesArray([
@@ -141,13 +142,15 @@ const HALF_SIZE_METERS     = 100;    // half-width of the local water box
   initNodeStream(viewer, async (payload) => {
     // DEPTH PAYLOAD
     if (payload && payload.type === 'depth') {
-      const { location, lng, lat, value } = payload;     // value is your flood depth (meters)
+      const { location, lng, lat,size,value} = payload;
+
       const depth = Number(value || 0);
 
       // coords in "lat,lng" order (from your Python)
       const [latStr, lonStr] = String(location).split(',');
       const buildingLat = Number(latStr);
       const buildingLon = Number(lonStr);
+    
 
       // 1) terrain height at building center
       const centerCarto = Cesium.Cartographic.fromDegrees(buildingLon, buildingLat);
@@ -157,16 +160,18 @@ const HALF_SIZE_METERS     = 100;    // half-width of the local water box
 
       const baseHeight   = centerSample.height;
       const floodHeight  = baseHeight + depth;     // geometric water level used for masks/box
+      
 
-      // 2) water-box footprint
-      const halfSizeDeg = HALF_SIZE_METERS / 111000;
-      const west  = buildingLon - halfSizeDeg;
-      const east  = buildingLon + halfSizeDeg;
-      const south = buildingLat - halfSizeDeg;
-      const north = buildingLat + halfSizeDeg;
+// Sanity log
+console.log("inputs:", buildingLon, buildingLat, HALF_SIZE_METERS );
+
+const rect = rectFromCenterMeters_ENU(buildingLon, buildingLat, HALF_SIZE_METERS, 0);
+
+  
 
       // update (or create) the reusable water polygon
-      upsertWaterBox({ west, east, south, north, baseHeight, floodHeight });
+      upsertWaterBox({ west: rect.west, east: rect.east, south: rect.south, north: rect.north,
+                 baseHeight, floodHeight });
 
       // 3) wait for tileset & HUD to settle
       await tileset.readyPromise;
@@ -177,38 +182,35 @@ const HALF_SIZE_METERS     = 100;    // half-width of the local water box
       const needMask = Math.abs(depth) > WATER_EPS_M;
       if (needMask) {
         await withOverlayHidden(viewer,waterEntity,markerEntity, async () => {
+        
           if (floodHeight > viewer.camera.positionCartographic.height) {
             await captureAndSendSubmergedInpaintMask(viewer, {
-              centerLon: buildingLon,
-              centerLat: buildingLat,
-              sizeMeters: 1500,
-              waterLevelUp: floodHeight,
+               rect,
+               waterLevelUp: floodHeight,
               includeBuildings: true,
-              includeTerrain: true
+              includeTerrain: true,
             }, `${UUID}_underwater_mask.png`, {
               solidsStrength: 0.42,
               blurPx: 0
             });
           } else {
             await captureAndSendIntersectedWaterMask(viewer, {
-              centerLon: buildingLon,
-              centerLat: buildingLat,
-              sizeMeters: 1500,
+               rect,
               waterLevelUp: floodHeight,
               includeBuildings: true,
-              includeTerrain: true
+              includeTerrain: true,
             }, `${UUID}_overwater_mask.png`);
 
             await captureAndSendIntersectedWaterMask(viewer, {
-              centerLon: buildingLon,
-              centerLat: buildingLat,
-              sizeMeters: 1500,
+              rect,
               waterLevelUp: floodHeight,
               includeBuildings: false,
-              includeTerrain: true
+              includeTerrain: true,
             }, `${UUID}_naive_overwater_mask.png`);
           }
-        });
+    
+          });
+        
       }
 
       hud.dispose();

@@ -1,5 +1,6 @@
 // captureScene.js
 import { sendCanvasAsPNG } from "./nodeCommunication.js";
+import { attachViewLoadHUD, nextFrame } from './viewReady.js';
 
 /**
  * Capture the current Cesium scene as an image.
@@ -112,5 +113,29 @@ export async function captureAndSendScene(
     });
     if (!resp.ok) throw new Error(`save-mask ${resp.status}`);
     return resp.json();
+  }
+}
+
+
+export async function withViewportSize(viewer, w, h, fn) {
+  const el = viewer.container;                 // the div#cesiumContainer
+  const prevW = el.style.width;
+  const prevH = el.style.height;
+
+  // Force pixel size
+  el.style.width  = `${w}px`;
+  el.style.height = `${h}px`;
+  viewer.resize();                              // tell Cesium to re-measure
+  viewer.scene.requestRender();
+  await nextFrame(viewer);
+
+  try {
+    return await fn();                          // run the capture(s)
+  } finally {
+    // Restore
+    el.style.width  = prevW;
+    el.style.height = prevH;
+    viewer.resize();
+    viewer.scene.requestRender();
   }
 }

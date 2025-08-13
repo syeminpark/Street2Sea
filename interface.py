@@ -8,6 +8,7 @@ from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from interface_ui import AddressFormUI
 from constants import PerspectiveMode
 from cesiumViewer import CesiumViewer
+from imageViewer import ImageViewerDialog
 
 
 class AddressForm(AddressFormUI):
@@ -56,6 +57,21 @@ class AddressForm(AddressFormUI):
         self.cesium_viewer = CesiumViewer()
 
         self.update_submit_state()
+        self.prev_btn.clicked.connect(self.show_prev_street_image)
+        self.next_btn.clicked.connect(self.show_next_street_image)
+
+        self._current_street_pix = QPixmap()
+        self._current_ai_pix = QPixmap()
+        self.img1_label.clicked.connect(lambda: self._open_viewer(self._current_street_pix, "Street-View"))
+        self.img2_label.clicked.connect(lambda: self._open_viewer(self._current_ai_pix, "AI-Generated"))
+
+        self.date_edit.dateChanged.connect(self.update_submit_state)
+        self.time_edit.timeChanged.connect(self.update_submit_state)
+        self.rb_building.toggled.connect(self.update_submit_state)
+        self.rb_surrounding.toggled.connect(self.update_submit_state)
+        self.depth_override_cb.toggled.connect(self.update_submit_state)
+        self.depth_override_spin.valueChanged.connect(self.update_submit_state)
+
 
     def update_submit_state(self):
         has_postal = bool(self.postal.text().strip())
@@ -88,6 +104,7 @@ class AddressForm(AddressFormUI):
         self.log.append(
             f"Address found: {r['address1']} {r['address2']} {r['address3']}"
         )
+        self.update_submit_state()
 
     def _on_submit(self):
         mode = (
@@ -108,6 +125,8 @@ class AddressForm(AddressFormUI):
             'address2': self.address2.text().strip(),
             'mode': mode.value,
             'timezone': self.tz_combo.currentText(),
+            'depth_override_enabled': self.depth_override_cb.isChecked(),
+            'depth_override_value': float(self.depth_override_spin.value()),
         }
         self.submit_btn.setEnabled(False)
         self.data_submitted.emit(payload)
@@ -129,10 +148,12 @@ class AddressForm(AddressFormUI):
 
         self.cesium_placeholder.deleteLater()
         self._map_initialized = True
+
     def set_street_images(self, images, metadata):
         self.street_images = images
         self.street_meta   = metadata
         self.current_street_index = 0
+        self.img2_label.clear()
 
         # parse the size string into two ints
         size_str = metadata[0].get("size", "600x300")
@@ -159,11 +180,8 @@ class AddressForm(AddressFormUI):
         img_bytes = self.street_images[self.current_street_index]
         pix = QPixmap()
         if pix.loadFromData(img_bytes):
-            scaled = pix.scaled(
-                self.img1_label.size(),
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
-            )
+            self._current_street_pix = pix       
+            scaled = pix.scaled(self.img1_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.img1_label.setPixmap(scaled)
             self.img1_label.setFixedSize(scaled.size()) 
 
@@ -197,7 +215,17 @@ class AddressForm(AddressFormUI):
     def display_ai_image(self, img_bytes: bytes):
         pix = QPixmap()
         if pix.loadFromData(img_bytes):
-            self.img2_label.setPixmap(pix)
-            self.log.append("✔ AI‑generated image displayed.")
+            self._current_ai_pix = pix                   # <— keep original
+            scaled = pix.scaled(self.img2_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.img2_label.setPixmap(scaled)
+            self.log.append("✔ AI-generated image displayed.")
         else:
-            self.log.append("⚠ Failed to load AI‑generated image.")
+            self.log.append("⚠ Failed to load AI-generated image.")
+
+    def _open_viewer(self, pix: QPixmap, title: str):
+        if pix.isNull():
+            self.log.append(f"⚠ No {title} image to show.")
+            return
+        dlg = ImageViewerDialog(title, self)
+        dlg.set_pixmap(pix)
+        dlg.exec_()

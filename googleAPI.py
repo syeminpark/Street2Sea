@@ -339,12 +339,15 @@ def getStreetView(
     coordinates: str,
     target_date: str,
     mode: str,
-    tolerance_m: int = 5,
+    tolerance_m: int,
+     width:int,
+    height:int,
+
     **kwargs
 ):
     """
     Unified entry: mode="building" or "surrounding".
     """
     if mode == PerspectiveMode.SURROUNDING.value:
-        return getPanoramaByDateTiles(coordinates, target_date, tolerance_m, **kwargs)
-    return getStreetViewOfBuilding(coordinates, target_date, tolerance_m, **kwargs)
+        return getPanoramaByDateTiles(coordinates, target_date, tolerance_m,width,height, **kwargs)
+    return getStreetViewOfBuilding(coordinates, target_date, tolerance_m,width,height, **kwargs)
