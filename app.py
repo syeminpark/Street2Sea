@@ -20,21 +20,29 @@ from imageGen import _normalize_uuid
 
 class UiBus(QObject):
     ai_ready = pyqtSignal(bytes)  # emit bytes to update the right panel
+    tiles_ready = pyqtSignal() 
 
 bus = UiBus()
 
 def on_mask_ready(uuid: str):
+    """Runs in SSE worker thread. Never touch widgets directly here."""
     if "_naive" in uuid.lower():
         return
+    # Skip if Qt not initialized yet (paranoia guard)
+    if bus is None:
+        return
+
+    # First signal means tiles/hud phase finished
+    bus.tiles_ready.emit()
+
     try:
         out_path = generate_from_uuid(uuid, images_dir="images")
         with open(out_path, "rb") as f:
             img_bytes = f.read()
-        bus.ai_ready.emit(img_bytes)
+        bus.ai_ready.emit(img_bytes)   # delivered to UI thread via queued connection
         print(f"[AI] Generated {out_path}")
     except Exception as e:
         print("[AI] generation failed:", e)
-
 BASE_URL = f"http://{WebDirectory.HOST.value}:{WebDirectory.PORT.value}"
 API_URL  = BASE_URL + WebDirectory.CAMERA_METADATA_ROUTE.value
 
@@ -125,6 +133,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     w = AddressForm()
     bus.ai_ready.connect(w.display_ai_image)
+    bus.tiles_ready.connect(w.on_tiles_ready)  # marks first connector as ready
     w.data_submitted.connect(handle_form)
     w.show()
     sys.exit(app.exec_())
