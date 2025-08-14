@@ -125,7 +125,7 @@ class AddressFormUI(QWidget):
         self.mode_group = QButtonGroup(self)
         self.mode_group.addButton(self.rb_building)
         self.mode_group.addButton(self.rb_surrounding)
-        rows.addRow("Perspective Mode:", mode_layout)
+        # rows.addRow("Perspective Mode:", mode_layout)
 
         ov_layout = QHBoxLayout()
         self.depth_override_cb = QCheckBox("Override predicted depth (m)")

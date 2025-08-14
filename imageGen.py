@@ -17,12 +17,12 @@ SDXL_REFINER = os.getenv("SDXL_REFINER", "sd_xl_refiner_1.0.safetensors [7440042
 SDXL_VAE     = os.getenv("SDXL_VAE",     "sdxl_vae.safetensors")
 
 CNXL_DEPTH   = os.getenv("CNXL_DEPTH",   "controlnetxlCNXL_bdsqlszDepth [c4d5ca3b]")
-CNXL_CANNY   = os.getenv("CNXL_CANNY",   "controlnetxlCNXL_bdsqlszCanny [a7d4aa41]")
+CNXL_CANNY   = os.getenv("CNXL_CANNY",   "controlnetxlCNXL_bdsqlszCanny [a74daa41]")
 
 # ----------------- Profiles -----------------
 PROFILES = {
     "underwater": {
-          "seed": 2646390155, 
+          "seed": 595415233, 
         "steps": 25, "cfg": 6.0, "denoise": 0.63,
         "sampler": "DPM++ 3M SDE", "scheduler": "Karras", "clip_skip": 1,
         "refiner_switch_at": 0.90,
@@ -40,10 +40,10 @@ PROFILES = {
         "mask_blur": 1, "inpainting_fill": 3, "inpaint_full_res": False, "inpaint_padding": 32, "invert_mask": 0,
         "soft_inpaint": {
     "enabled": True,
-    "schedule_bias": 1.0,
-    "preserve_strength": 1.0,
-    "transition_boost": 2.0,
-    "mask_influence": 0.55, 
+    "schedule_bias": 0.8,
+    "preserve_strength": 1.2,
+    "transition_boost": 2.5,
+    "mask_influence": 0.7, 
     "diff_threshold": 1.0,
     "diff_contrast": 8.0,
 
@@ -62,7 +62,7 @@ PROFILES = {
                     "threshold_a": 0.0,
                     "threshold_b": 0.0,
                     "control_mode": 0,
-                    "resize_mode": 0,
+                    "resize_mode": 1,
                     "image_from": "init",
                 },
                 {
@@ -75,7 +75,7 @@ PROFILES = {
                     "threshold_a": 100.0,
                     "threshold_b": 200.0,
                     "control_mode": 0,
-                    "resize_mode": 0,
+                    "resize_mode": 1,
                     "image_from": "canny",
                 },
             ]
@@ -325,7 +325,7 @@ def generate_from_files(street_image: str, mask_image: str, out_path: str,
         "inpainting_mask_invert": int(prof["invert_mask"]),
         "refiner_checkpoint": SDXL_REFINER,
         "refiner_switch_at": float(prof["refiner_switch_at"]),
-        "resize_mode": 0,
+        "resize_mode": 1,
         "alwayson_scripts": alwayson,
     }
 
@@ -349,7 +349,27 @@ def generate_from_files(street_image: str, mask_image: str, out_path: str,
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     Path(out_path).write_bytes(img_bytes)
 
+    summarize_run(infotext)
+
     return (out_path, infotext) if want_info else out_path
+
+def summarize_run(info_str: str) -> dict:
+    out = {}
+    try:
+        j = json.loads(info_str)
+        egp = j.get("extra_generation_params", {})
+        out["seed"] = j.get("seed")
+        out["sampler"] = j.get("sampler_name")
+        out["denoise"] = j.get("denoising_strength")
+        out["refiner_switch_at"] = egp.get("Refiner switch at")
+        out["soft_inpaint"] = {k: egp[k] for k in egp if k.lower().startswith("soft inpainting")}
+        # ControlNet lines are strings; keep them for display
+        out["cn0"] = egp.get("ControlNet 0")
+        out["cn1"] = egp.get("ControlNet 1")
+    except Exception:
+        out["raw"] = info_str
+    print(out)
+    return out
 
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}")
 def _normalize_uuid(u: str) -> str:
