@@ -88,7 +88,7 @@ PROFILES = {
         "target_wh": (1024, 1024),
         "prompt": "calm flood water filling the masked area, subtle foam along edges, high detail, photorealistic",
         "negative": (
-            "fence, wall, twrils, railing, poles, buildings, wood, barrier, object, debris, distortion, text, logo, "
+            "fence, wall, twirls, railing, poles, buildings, wood, barrier, object, debris, distortion, text, logo, "
             "watermark, people, boats, tree, car, waves, tide, plants, brick, rock, stone, bush"
         ),
         "mask_blur": 1, "inpainting_fill": 0, "inpaint_full_res": False, "inpaint_padding": 32, "invert_mask": 0,
