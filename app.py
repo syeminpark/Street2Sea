@@ -16,36 +16,53 @@ from imageGen import generate_from_uuid
 import threading, json, os
 from sse_masks import start_mask_watcher
 from imageGen import _normalize_uuid
+from collections import OrderedDict
+from PyQt5.QtCore import QTimer
+
+
+_recent = OrderedDict()
+
+def _seen(key, maxlen=200):
+    if key in _recent:
+        return True
+    _recent[key] = None
+    if len(_recent) > maxlen:
+        _recent.popitem(last=False)
+    return False
+
+BASE_URL = f"http://{WebDirectory.HOST.value}:{WebDirectory.PORT.value}"
+API_URL  = BASE_URL + WebDirectory.CAMERA_METADATA_ROUTE.value
 
 
 class UiBus(QObject):
     ai_ready = pyqtSignal(bytes)  # emit bytes to update the right panel
     tiles_ready = pyqtSignal() 
+    progress   = pyqtSignal(str)   # <-- NEW
+    
 
-bus = UiBus()
+bus = None
 
-def on_mask_ready(uuid: str):
-    """Runs in SSE worker thread. Never touch widgets directly here."""
+def on_mask_ready(uuid: str, profile: str = "underwater"):
     if "_naive" in uuid.lower():
         return
-    # Skip if Qt not initialized yet (paranoia guard)
-    if bus is None:
+    if QApplication.instance() is None or bus is None:
+        return
+    if _seen((uuid, profile)):
         return
 
-    # First signal means tiles/hud phase finished
     bus.tiles_ready.emit()
-
     try:
-        out_path = generate_from_uuid(uuid, images_dir="images")
+        out_path, infotext = generate_from_uuid(uuid, images_dir="images",
+                                                profile=profile, want_info=True)
         with open(out_path, "rb") as f:
             img_bytes = f.read()
-        bus.ai_ready.emit(img_bytes)   # delivered to UI thread via queued connection
-        print(f"[AI] Generated {out_path}")
+        bus.ai_ready.emit(img_bytes)
+        if infotext:
+            bus.progress.emit(infotext)  # <-- shows the exact WebUI line
+        print(f"[AI] Generated {out_path} ({profile})")
     except Exception as e:
+        bus.progress.emit(f"[AI] generation failed: {e}")
         print("[AI] generation failed:", e)
-BASE_URL = f"http://{WebDirectory.HOST.value}:{WebDirectory.PORT.value}"
-API_URL  = BASE_URL + WebDirectory.CAMERA_METADATA_ROUTE.value
-
 
 def dateConverter(data):
      # 3) Parse date+hour into a full datetime
@@ -123,17 +140,28 @@ def handle_form(data):
         w.log.append(f"⚠ Error: {msg}")
         QMessageBox.warning(w, "Error", msg)
 
-
-mask_thread = None
+# app.py (bottom)
 if __name__ == "__main__":
     start_node()
-    wait_health(BASE_URL+"/health")
-    start_mask_watcher(BASE_URL, on_mask_ready)
+    wait_health(BASE_URL + "/health")
 
     app = QApplication(sys.argv)
+
+    bus = UiBus()  # create after QApp
     w = AddressForm()
-    bus.ai_ready.connect(w.display_ai_image)
-    bus.tiles_ready.connect(w.on_tiles_ready)  # marks first connector as ready
+
+    from PyQt5.QtCore import Qt
+    bus.ai_ready.connect(w.display_ai_image, type=Qt.QueuedConnection)
+    bus.tiles_ready.connect(w.on_tiles_ready, type=Qt.QueuedConnection)
+    bus.progress.connect(w.log.append, type=Qt.QueuedConnection)   # <-- NEW
     w.data_submitted.connect(handle_form)
+    
+
+    def _start_sse():
+        global mask_thread
+        mask_thread = start_mask_watcher(BASE_URL, on_mask_ready)
+
+    QTimer.singleShot(0, _start_sse)   # schedule once UI is up
+
     w.show()
     sys.exit(app.exec_())

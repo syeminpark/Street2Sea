@@ -128,7 +128,7 @@ class AddressFormUI(QWidget):
         rows.addRow("Perspective Mode:", mode_layout)
 
         ov_layout = QHBoxLayout()
-        self.depth_override_cb = QCheckBox("Override depth (m)")
+        self.depth_override_cb = QCheckBox("Override predicted depth (m)")
         self.depth_override_spin = QDoubleSpinBox()
         self.depth_override_spin.setRange(0.0, 100.0)      # meters; adjust if you need more
         self.depth_override_spin.setDecimals(2)
@@ -138,7 +138,7 @@ class AddressFormUI(QWidget):
         self.depth_override_cb.toggled.connect(self.depth_override_spin.setEnabled)
         ov_layout.addWidget(self.depth_override_cb)
         ov_layout.addWidget(self.depth_override_spin)
-        rows.addRow("Flood Depth:", ov_layout)
+        rows.addRow("Custom Flood Depth:", ov_layout)
 
 
         fv.addLayout(rows)
@@ -180,7 +180,7 @@ class AddressFormUI(QWidget):
         cv.addWidget(self._make_subtitle("3D scene of the street-view location"),
                      alignment=Qt.AlignCenter)
         bottom.addWidget(self.cesium_panel, 0)
-        bottom.addWidget(self._make_image_panel("AI-Generated", "img2_label",
+        bottom.addWidget(self._make_image_panel("AI-Generation", "img2_label",
                         "AI-generated image based on flood depth."), 0)
 
         root.addLayout(bottom)
