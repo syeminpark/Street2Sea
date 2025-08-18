@@ -4,7 +4,7 @@ import json
 from PyQt5.QtCore import QUrl, pyqtSignal, Qt, QSize, QEvent
 from PyQt5.QtGui import QPixmap, QKeySequence
 from PyQt5.QtWidgets import (
-    QWidget, QSizePolicy, QToolButton, QStyle, QShortcut
+    QWidget, QSizePolicy, QToolButton, QStyle, QShortcut, QApplication, QVBoxLayout, QSizePolicy
 )
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
 
@@ -87,7 +87,7 @@ class AddressForm(AddressFormUI):
         # connector overlay (top-level window that sits above QWebEngineView)
         self.connector = ConnectorOverlay(self)
         # initially connect to the placeholder in the middle
-        self.connector.set_widgets(self.img1_label, self.cesium_placeholder, self.img2_label)
+        self.connector.set_widgets(self.img1_label, self.cesium_media_frame, self.img2_label)
 
     # ---------- enable submit when minimal fields present ----------
     def update_submit_state(self):
@@ -155,20 +155,42 @@ class AddressForm(AddressFormUI):
         if getattr(self, "_map_initialized", False):
             return
 
-        layout = self.cesium_panel.layout()
-        layout.replaceWidget(self.cesium_placeholder, self.cesium_viewer)
+        # We now host the viewer inside the media frame (same as other cards)
+        container = getattr(self, "cesium_media_frame", None)
+        if container is None:
+            # safety fallback
+            container = getattr(self.cesium_panel, "body", self.cesium_panel)
 
-        # content size (match the Street-View label)
-        w = self._streetview_size.width()
-        h = self._streetview_size.height()
-        self.cesium_viewer.setFixedSize(w, h)
+        layout = container.layout()
+        if layout is None:
+            layout = QVBoxLayout(container)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+
+        # Placeholder must live in the same container we replace in
+        if self.cesium_placeholder.parent() is not container:
+            self.cesium_placeholder.setParent(container)
+
+        layout.replaceWidget(self.cesium_placeholder, self.cesium_viewer)
+        self.cesium_placeholder.hide()
+        self.cesium_viewer.show()
+
+        # Size to match Street-View for visual parity
+        s = self._streetview_size
+        container.setFixedSize(s)                # frame (border box)
+        self.cesium_viewer.setFixedSize(s)       # viewer inside the frame
         self.cesium_viewer.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
-        self.cesium_placeholder.deleteLater()
         self._map_initialized = True
 
-        self.connector.set_widgets(self.img1_label, self.cesium_viewer, self.img2_label)
+        self.connector.set_widgets(self.img1_label, self.cesium_media_frame, self.img2_label)
         self.connector.update()
+
+        layout.invalidate()
+        layout.activate()
+        QApplication.processEvents()
+
+
 
     # ---------- images ----------
     def set_street_images(self, images, metadata):
@@ -190,6 +212,8 @@ class AddressForm(AddressFormUI):
         # update cesium size if already placed
         if getattr(self, "_map_initialized", False):
             s = self._streetview_size
+            if hasattr(self, "cesium_media_frame"):
+                self.cesium_media_frame.setFixedSize(s)
             self.cesium_viewer.setFixedSize(s)
 
     def _show_current_street(self):

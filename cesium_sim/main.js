@@ -4,7 +4,6 @@ import { attachViewLoadHUD, nextFrame } from './viewReady.js';
 import {
   captureAndSendIntersectedWaterMask,
   captureAndSendSubmergedInpaintMask,
-    captureAndSendFloodDepthMap
 } from './captureIntersectedWaterMask.js';
 import { captureAndSendScene } from './captureScene.js';
 import {withOverlayHidden} from './viewReady.js'
@@ -15,7 +14,7 @@ let UUID = "";
 
 // ---- scene/overlay behavior knobs ---------------------------------
 const SHOW_WATER_IN_SCENE  = true;   // water plane visible in final screenshot
-const SHOW_MARKER_IN_SCENE = true;   // depth label visible in final screenshot
+const SHOW_MARKER_IN_SCENE = false;   // depth label visible in final screenshot
 const WATER_EPS_M          = 0.25;   // deadband: skip masks if depth <= this
 const HALF_SIZE_METERS     = 100;    // half-width of the local water box
 // -------------------------------------------------------------------
@@ -181,11 +180,9 @@ const rect = rectFromCenterMeters_ENU(buildingLon, buildingLat, HALF_SIZE_METERS
 
       // 4) generate masks with overlay hidden (and skip if near-zero depth)
       const needMask = Math.abs(depth) > WATER_EPS_M;
+      
       if (needMask) {
         await withOverlayHidden(viewer,waterEntity,markerEntity, async () => {
-
-          
-        
           if (floodHeight > viewer.camera.positionCartographic.height) {
             await captureAndSendSubmergedInpaintMask(viewer, {
                rect,
@@ -211,21 +208,9 @@ const rect = rectFromCenterMeters_ENU(buildingLon, buildingLat, HALF_SIZE_METERS
               includeTerrain: true,
             }, `${UUID}_naive_overwater_mask.png`);
           }
-           await captureAndSendFloodDepthMap(viewer, {
-  rect,
-  floodHeight,
-  filename: `${UUID}_flood_depthmap.png`,
-  hiResScale: 1,
-  // Optional: if you want to mimic your HALF_SIZE_METERS * 3 heuristic:
-  farHintMeters: HALF_SIZE_METERS * 3
-});
-
-    
+// 
           });
-          
-        
       }
-
       hud.dispose();
 
       // 5) show what you want visible for the pretty scene export
@@ -233,12 +218,14 @@ const rect = rectFromCenterMeters_ENU(buildingLon, buildingLat, HALF_SIZE_METERS
         water: waterEntity?.show ?? null,
         marker: markerEntity?.show ?? null
       };
+      
       if (waterEntity)  waterEntity.show  = !!SHOW_WATER_IN_SCENE;
       if (markerEntity) markerEntity.show = !!SHOW_MARKER_IN_SCENE;
 
       viewer.scene.requestRender();
-      await nextFrame(viewer);
-
+      viewer.camera.frustum.near = 0.001;
+      
+      await nextFrame(viewer)
       await captureAndSendScene(viewer, {
         filename: `${UUID}_scene.png`,
         resolutionScale: 2,
@@ -247,7 +234,6 @@ const rect = rectFromCenterMeters_ENU(buildingLon, buildingLat, HALF_SIZE_METERS
       });
 
       // restore previous visibility
-      // if (waterEntity && prevShows.water  !== null) waterEntity.show  = prevShows.water;
       if (markerEntity && prevShows.marker !== null) markerEntity.show = prevShows.marker;
 
       // 6) update / place the single marker
@@ -261,7 +247,8 @@ const rect = rectFromCenterMeters_ENU(buildingLon, buildingLat, HALF_SIZE_METERS
         height: markerSample.height,
         depthValue: depth
       });
-
+      
+      await nextFrame(viewer)
       viewer.scene.requestRender();
     }
 
