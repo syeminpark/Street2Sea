@@ -1,6 +1,8 @@
 // captureIntersectedWaterMask.js
 import { sendCanvasAsPNG } from "./nodeCommunication.js";
 import { nextFrame } from './viewReady.js';
+import { captureFloodDistanceMapCanvas } from './floodDistanceMap.js';
+
 /**
  * Render a big horizontal plane at `waterLevelUp` with depth test ON so it is
  * clipped by terrain and/or buildings based on the options.
@@ -213,4 +215,133 @@ export async function captureAndSendIntersectedWaterMask(
   return sendCanvasAsPNG(canvas, filename);
 }
 
+// Add this helper near the top of captureIntersectedWaterMask.js
+function estimateVisiblePlanarFar(viewer, planePointWC, planeNormalWC) {
+  const n    = Cesium.Cartesian3.normalize(planeNormalWC, new Cesium.Cartesian3());
+  const cam  = viewer.camera.positionWC;
+  const pln  = Cesium.Plane.fromPointNormal(planePointWC, n);
 
+  // perpendicular distance cam → plane, used for a fallback guess
+  const dPerp = Math.abs(Cesium.Cartesian3.dot(
+    n,
+    Cesium.Cartesian3.subtract(planePointWC, cam, new Cesium.Cartesian3())
+  ));
+
+  // sample a few window positions
+  const w = viewer.canvas.width, h = viewer.canvas.height;
+  const pts = [
+    new Cesium.Cartesian2(0, 0),
+    new Cesium.Cartesian2(w-1, 0),
+    new Cesium.Cartesian2(0, h-1),
+    new Cesium.Cartesian2(w-1, h-1),
+    new Cesium.Cartesian2(w*0.5, h*0.5),
+    new Cesium.Cartesian2(w*0.5, 0),
+    new Cesium.Cartesian2(w*0.5, h-1),
+    new Cesium.Cartesian2(0, h*0.5),
+    new Cesium.Cartesian2(w-1, h*0.5),
+  ];
+
+  let far = 0.0;
+  for (const p of pts) {
+    const ray = viewer.scene.camera.getPickRay(p, new Cesium.Ray());
+    if (!ray) continue;
+    const hit = Cesium.IntersectionTests.rayPlane(ray, pln);
+    if (!hit) continue;
+    // planar component of (hit - cam)
+    const v = Cesium.Cartesian3.subtract(hit, cam, new Cesium.Cartesian3());
+    const along = Cesium.Cartesian3.subtract(
+      v,
+      Cesium.Cartesian3.multiplyByScalar(n, Cesium.Cartesian3.dot(v, n), new Cesium.Cartesian3()),
+      new Cesium.Cartesian3()
+    );
+    far = Math.max(far, Cesium.Cartesian3.magnitude(along));
+  }
+
+  if (far <= 0.0 || !Number.isFinite(far)) {
+    // Fallback: visible extent ~ perpendicular distance * tan(FOV/2) (times a margin)
+    const fov = viewer.camera.frustum.fov; // Cesium uses vertical FOV
+    far = Math.max(20, dPerp * Math.tan(fov * 0.5) * 1.6);
+  }
+  return far * 1.05; // small safety headroom
+}
+
+
+// --- util: multiply two canvases in-place (grayscale × B/W mask) ---
+function multiplyCanvases(dstCanvas, maskCanvas) {
+  const w = dstCanvas.width, h = dstCanvas.height;
+  const dctx = dstCanvas.getContext('2d', { willReadFrequently: true });
+  const mctx = maskCanvas.getContext('2d', { willReadFrequently: true });
+  const d = dctx.getImageData(0, 0, w, h);
+  const m = mctx.getImageData(0, 0, w, h);
+  for (let i = 0; i < d.data.length; i += 4) {
+    const mask = m.data[i]; // R=G=B in B/W mask
+    d.data[i]   = (d.data[i]   * mask) >> 8;
+    d.data[i+1] = (d.data[i+1] * mask) >> 8;
+    d.data[i+2] = (d.data[i+2] * mask) >> 8;
+    d.data[i+3] = 255;
+  }
+  dctx.putImageData(d, 0, 0);
+  return dstCanvas;
+}
+
+/**
+ * Perspective flood depth map (white=near, black=far) gated by visibility.
+ * Saves a PNG via sendCanvasAsPNG and returns the canvas.
+ *
+ * @param {Cesium.Viewer} viewer
+ * @param {Object} opts
+ * @param {Object} opts.rect - {west,east,south,north} in degrees
+ * @param {number} opts.floodHeight - water level (meters MSL)
+ * @param {string} opts.filename - output filename
+ * @param {number} [opts.hiResScale=2] - supersampling scale
+ * @param {boolean} [opts.includeBuildings=true] - for visibility mask
+ * @param {boolean} [opts.includeTerrain=true]   - for visibility mask
+ * @param {number|null} [opts.nearMeters=null]   - override near (m)
+ * @param {number|null} [opts.farMeters=null]    - override far (m)
+ * @param {number} [opts.farHintMeters=300]      - used if farMeters not set
+ */
+
+export async function captureAndSendFloodDepthMap(
+  viewer,
+  {
+    rect,
+    floodHeight,
+    filename = "flood_depthmap.png",
+    hiResScale = 2,
+    includeBuildings = true,
+    includeTerrain = true,
+    nearMeters = null,
+    farMeters = null
+  }
+) {
+  // 1) plane point & normal
+  const centerLon = (rect.west + rect.east) * 0.5;
+  const centerLat = (rect.south + rect.north) * 0.5;
+  const planePointWC  = Cesium.Cartesian3.fromDegrees(centerLon, centerLat, floodHeight);
+  const planeNormalWC = Cesium.Ellipsoid.WGS84.geodeticSurfaceNormal(planePointWC);
+
+  // 2) auto near/far based on what's visible
+  if (nearMeters == null) nearMeters = 0.0;
+  if (farMeters  == null) {
+    farMeters = estimateVisiblePlanarFar(viewer, planePointWC, planeNormalWC);
+  }
+
+  // 3) render the planar distance field
+  const planeDist = await captureFloodDistanceMapCanvas(viewer, {
+    planePointWC, planeNormalWC, nearMeters, farMeters, hiResScale
+  });
+
+  // 4) mask by actual visibility (terrain + buildings)
+  const bwMask = await captureIntersectedWaterMaskCanvas(viewer, {
+    rect,
+    waterLevelUp: floodHeight,
+    includeBuildings,
+    includeTerrain,
+    hiResScale
+  });
+  multiplyCanvases(planeDist, bwMask);
+
+  // 5) save
+  await sendCanvasAsPNG(planeDist, filename);
+  return planeDist;
+}

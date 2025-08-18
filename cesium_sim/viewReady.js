@@ -46,7 +46,7 @@ export function attachViewLoadHUD(viewer, tilesets = []) {
 
   // safety valve: never wait forever
   const start = performance.now();
-  const TIMEOUT_MS = 6000;
+  const TIMEOUT_MS = 10000;
 
   // Normalize tilesets input
   const tsList = (Array.isArray(tilesets) ? tilesets : [tilesets]).filter(Boolean);

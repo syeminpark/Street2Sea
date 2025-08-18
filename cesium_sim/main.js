@@ -3,7 +3,8 @@ import { initNodeStream } from './nodeCommunication.js';
 import { attachViewLoadHUD, nextFrame } from './viewReady.js';
 import {
   captureAndSendIntersectedWaterMask,
-  captureAndSendSubmergedInpaintMask
+  captureAndSendSubmergedInpaintMask,
+    captureAndSendFloodDepthMap
 } from './captureIntersectedWaterMask.js';
 import { captureAndSendScene } from './captureScene.js';
 import {withOverlayHidden} from './viewReady.js'
@@ -39,6 +40,7 @@ const HALF_SIZE_METERS     = 100;    // half-width of the local water box
   viewer.scene.fxaa = false;
   viewer.scene.pickTranslucentDepth = true;
   viewer.scene.useDepthPicking = true;
+  
 
   const ctx = viewer.scene.context;
   console.log('depthTexture support:', !!ctx.depthTexture);
@@ -181,6 +183,8 @@ const rect = rectFromCenterMeters_ENU(buildingLon, buildingLat, HALF_SIZE_METERS
       const needMask = Math.abs(depth) > WATER_EPS_M;
       if (needMask) {
         await withOverlayHidden(viewer,waterEntity,markerEntity, async () => {
+
+          
         
           if (floodHeight > viewer.camera.positionCartographic.height) {
             await captureAndSendSubmergedInpaintMask(viewer, {
@@ -207,8 +211,18 @@ const rect = rectFromCenterMeters_ENU(buildingLon, buildingLat, HALF_SIZE_METERS
               includeTerrain: true,
             }, `${UUID}_naive_overwater_mask.png`);
           }
+           await captureAndSendFloodDepthMap(viewer, {
+  rect,
+  floodHeight,
+  filename: `${UUID}_flood_depthmap.png`,
+  hiResScale: 1,
+  // Optional: if you want to mimic your HALF_SIZE_METERS * 3 heuristic:
+  farHintMeters: HALF_SIZE_METERS * 3
+});
+
     
           });
+          
         
       }
 
