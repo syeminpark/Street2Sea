@@ -89,11 +89,17 @@ class AddressForm(AddressFormUI):
         # initially connect to the placeholder in the middle
         self.connector.set_widgets(self.img1_label, self.cesium_media_frame, self.img2_label)
 
+        self.prefecture.textChanged.connect(self.update_submit_state)
+        self.city.textChanged.connect(self.update_submit_state)
+        self.town.textChanged.connect(self.update_submit_state)
+
     # ---------- enable submit when minimal fields present ----------
     def update_submit_state(self):
         has_postal = bool(self.postal.text().strip())
         has_addr2 = bool(self.address2.text().strip())
-        self.submit_btn.setEnabled(has_postal and has_addr2)
+        has_core   = all(f.text().strip() for f in (self.prefecture, self.city, self.town))
+        self.submit_btn.setEnabled(has_postal and has_addr2 and has_core)
+
 
     # ---------- postal lookup ----------
     def lookup_postal(self):
@@ -121,6 +127,10 @@ class AddressForm(AddressFormUI):
         self.town_en.setText(self.converter.do(r['address3']))
         self.log.append(f"Address found: {r['address1']} {r['address2']} {r['address3']}")
         self.update_submit_state()
+
+
+
+
 
     # ---------- submit ----------
     def _on_submit(self):

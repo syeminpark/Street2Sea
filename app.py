@@ -21,6 +21,7 @@ from PyQt5.QtCore import QTimer
 
 
 _recent = OrderedDict()
+ACTIVE_UUIDS = set()
 
 def _seen(key, maxlen=200):
     if key in _recent:
@@ -47,10 +48,24 @@ def on_mask_ready(uuid: str, profile: str = "underwater"):
         return
     if QApplication.instance() is None or bus is None:
         return
+
+    # normalize and ignore if it’s not from this run
+    try:
+        from imageGen import _normalize_uuid
+        uuid = _normalize_uuid(uuid)
+    except Exception:
+        pass
+
+    if uuid not in ACTIVE_UUIDS:
+        print(f"[SSE] ignoring stale mask for uuid={uuid}")
+        return
+
+    # (optional) per-run de-dupe
     if _seen((uuid, profile)):
         return
 
     bus.tiles_ready.emit()
+
     try:
         out_path, infotext = generate_from_uuid(uuid, images_dir="images",
                                                 profile=profile, want_info=True)
@@ -58,11 +73,12 @@ def on_mask_ready(uuid: str, profile: str = "underwater"):
             img_bytes = f.read()
         bus.ai_ready.emit(img_bytes)
         if infotext:
-            bus.progress.emit(infotext)  # <-- shows the exact WebUI line
+            bus.progress.emit(infotext)
         print(f"[AI] Generated {out_path} ({profile})")
     except Exception as e:
         bus.progress.emit(f"[AI] generation failed: {e}")
         print("[AI] generation failed:", e)
+
 
 def dateConverter(data):
      # 3) Parse date+hour into a full datetime
@@ -107,9 +123,12 @@ def handle_form(data):
         w.set_street_images(tiles, metas)
         
         w.ensure_map_started()
+        ACTIVE_UUIDS.clear()
+
         for meta, s in zip(metas, saved):
             meta["type"] = "camera"
             meta["uuid"] = s["uuid"]
+            ACTIVE_UUIDS.add(s["uuid"])
         sendToNode(metas, API_URL)
 
 
@@ -123,6 +142,7 @@ def handle_form(data):
             dt_fetched, resolution = find_and_download_flood_data(target_dt)
             ds_depth = openClosestFile(TEJapanFileType.DEPTH, target_dt)
             depth_value, depth_time = getNearestValueByCoordinates(ds_depth, coords, target_dt)
+        print(data.get("depth_override_enabled"),depth_value)
 
         # 6) Send depth to the browser (JS will use payload.value)
         depth_payload = {

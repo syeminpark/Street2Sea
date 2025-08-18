@@ -1,7 +1,8 @@
+let es = null;
 
 export function initNodeStream(viewer, onData) {
   if (!viewer) throw new Error('initNodeStream: pass a Cesium viewer');
-  const src = new EventSource('/events');
+  const src = new EventSource('/events?replay=0');   // ← ensure no replay
   src.onmessage = (ev) => {
     if (!ev.data) return;
     let payload;
@@ -10,7 +11,11 @@ export function initNodeStream(viewer, onData) {
   };
   src.onerror = (e) => console.error('SSE error – will auto-reconnect', e);
 }
-
+// optional helper if you ever need to stop listening manually
+export function closeNodeStream() {
+  try { es && es.close(); } catch {}
+  es = null;
+}
 
 export async function sendCanvasAsPNG(canvas, filename = "debug_mask.png") {
   const dataUrl = canvas.toDataURL("image/png");
@@ -22,4 +27,3 @@ export async function sendCanvasAsPNG(canvas, filename = "debug_mask.png") {
   if (!resp.ok) throw new Error(`save-mask ${resp.status}`);
   return resp.json();
 }
-

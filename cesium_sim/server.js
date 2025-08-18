@@ -1,42 +1,39 @@
-// server.js  (CommonJS style for consistency)
+// server.js (CommonJS)
 require('dotenv').config();
-const express                = require('express');
-const fs                     = require('fs');
+
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
 const HOST = process.env.HOST || 'localhost';
-const CAMERA_METADATA_ROUTE= process.env.CAMERA_METADATA_ROUTE || '/api/coords'
-const path = require('path');
+const CAMERA_METADATA_ROUTE = process.env.CAMERA_METADATA_ROUTE || '/api/coords';
 
+// ------------------------------------------------------------------
+// Middleware
+// ------------------------------------------------------------------
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ limit: '25mb', extended: true }));
 
-
-app.use(express.json({ limit: "25mb" }));           // adjust as needed
-// If you ever POST form-data, also raise urlencoded:
-app.use(express.urlencoded({ limit: "25mb", extended: true }));
-
-/* ------------------------------------------------------------------ */
-/* 1️⃣ Dynamic root: inject your Cesium ion token into index.html      */
+// ------------------------------------------------------------------
+// Root: inject Cesium ION token into index.template.html
+// ------------------------------------------------------------------
 app.get('/', (req, res) => {
   const token = JSON.stringify(process.env.CESIUM_ION_TOKEN || '');
-  // JSON.stringify adds the quotes, escaping if needed ("eyJhbGci...")
   const html = fs
     .readFileSync('index.template.html', 'utf8')
-    .replace("'CESIUM_ION_TOKEN'", token)        // ← replace including the quotes
-    .replace('"CESIUM_ION_TOKEN"', token);       // handle double-quoted case too
+    .replace("'CESIUM_ION_TOKEN'", token)
+    .replace('"CESIUM_ION_TOKEN"', token);
   res.send(html);
 });
 
 app.get('/health', (_, res) => res.send('OK'));
-/* ------------------------------------------------------------------ */
-/* 2️⃣ Proxy OSM tiles so they appear same‑origin to the browser       */
-/*    - We use the generic “tile.openstreetmap.org” host so the       */
-/*      proxy works for a/b/c sub‑domains.                            */
-/*    - changeOrigin makes the Host header match the target.          */
-/*    - pathRewrite strips the /osm prefix before forwarding.         */
-/*    - onProxyRes adds CORS headers for completeness (useful         */
-/*      if you later serve your app from a different origin).         */
+
+// ------------------------------------------------------------------
+// Proxy OpenStreetMap tiles to appear same-origin
+// ------------------------------------------------------------------
 app.use(
   '/osm',
   createProxyMiddleware({
@@ -49,72 +46,76 @@ app.use(
   })
 );
 
-/* ------------------------------------------------------------------ */
-/* 3️⃣ Static assets: Cesium JS, CSS, your own JS/CSS, etc.            */
-app.use(express.static('.'))
+// ------------------------------------------------------------------
+// Static assets (Cesium, JS, CSS, etc.)
+// ------------------------------------------------------------------
+app.use(express.static('.'));
 
-const clients = new Set();                     // store open connectionsconst 
-const backlog = [];
-const BACKLOG_LIMIT = 50;  // keep last 50 messages
+// ------------------------------------------------------------------
+// SSE: live-only stream with a tiny "pending until first client" queue
+// ------------------------------------------------------------------
+const clients = new Set();   // active SSE response streams
 let nextEventId = 1;
 
+// Hold events only while there are zero clients connected.
+// This is NOT persistent; it's cleared the moment a client connects.
+let pending = [];            // items: { id, data }
 
-function enqueue(payload) {
-  const evt = {
-    id: nextEventId++,
-    // keep as already-stringified JSON so we write it directly
-    data: typeof payload === 'string' ? payload : JSON.stringify(payload),
-    ts: Date.now(),
-  };
-  backlog.push(evt);
-  while (backlog.length > BACKLOG_LIMIT) backlog.shift();
-  return evt;
+function broadcast(payload) {
+  const id = nextEventId++;
+  const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
+
+  if (clients.size === 0) {
+    pending.push({ id, data });
+    return { id, delivered: 0, queued: pending.length };
+  }
+
+  let delivered = 0;
+  for (const stream of clients) {
+    stream.write(`id: ${id}\n`);
+    stream.write(`data: ${data}\n\n`);
+    delivered++;
+  }
+  return { id, delivered, queued: pending.length };
 }
 
-function writeEvent(stream, evt) {
-  stream.write(`id: ${evt.id}\n`);
-  stream.write(`data: ${evt.data}\n\n`);
-}
-
-
+// /events: live stream; on first connection, flush pending once and clear it
 app.get('/events', (req, res) => {
   res.set({
-    'Content-Type':'text/event-stream',
-    'Cache-Control':'no-cache',
-    'Connection':'keep-alive',
-    'X-Accel-Buffering':'no'
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
   });
   res.flushHeaders();
-  res.write('retry: 15000\n\n'); // advise reconnection delay
+  res.write('retry: 15000\n\n');
 
   clients.add(res);
 
-  const last = Number(req.get('Last-Event-ID') || req.query.lastEventId || 0);
-  const toReplay = last ? backlog.filter(e => e.id > last) : backlog;
-  for (const evt of toReplay) writeEvent(res, evt);
+  // Flush any events queued while there were no clients
+  if (pending.length) {
+    for (const evt of pending) {
+      res.write(`id: ${evt.id}\n`);
+      res.write(`data: ${evt.data}\n\n`);
+    }
+    pending = []; // clear immediately — no replay after first delivery
+  }
 
   const ping = setInterval(() => res.write(`: ping ${Date.now()}\n\n`), 15000);
   req.on('close', () => { clearInterval(ping); clients.delete(res); });
 });
 
-
+// ------------------------------------------------------------------
+// API that Python posts to (camera metas / depth)
+// ------------------------------------------------------------------
 app.post(CAMERA_METADATA_ROUTE, (req, res) => {
-  const evt = enqueue(req.body);
-
-  let delivered = 0;
-  for (const stream of clients) {
-    writeEvent(stream, evt);
-    delivered++;
-  }
-
-  res.json({
-    ok: true,
-    delivered,
-    queued: backlog.length,
-    lastEventId: evt.id
-  });
+  const { id, delivered, queued } = broadcast(req.body);
+  res.json({ ok: true, delivered, queued, lastEventId: id });
 });
 
+// ------------------------------------------------------------------
+// Save mask + notify live listeners (still no backlog)
+// ------------------------------------------------------------------
 app.post('/save-mask', (req, res) => {
   try {
     const { dataUrl, filename } = req.body;
@@ -131,13 +132,10 @@ app.post('/save-mask', (req, res) => {
     const outPath  = path.join(outDir, safeName);
     fs.writeFileSync(outPath, buf);
 
-    // 🔔 NEW: fire an SSE event so Python knows a mask arrived
-    // Expect filenames like "<uuid>_overwater_mask.png" or "<uuid>_underwater_mask.png"
+    // Notify JS/Python listeners
     const m = safeName.match(/^(.+?)_(?:overwater|underwater)_mask\.png$/);
     if (m) {
-      enqueue({ type: 'mask-saved', uuid: m[1], filename: safeName, url: `/images/${safeName}` });
-      // deliver immediately to all connected clients
-      for (const stream of clients) writeEvent(stream, backlog[backlog.length - 1]);
+      broadcast({ type: 'mask-saved', uuid: m[1], filename: safeName, url: `/images/${safeName}` });
     }
 
     res.json({ ok: true, path: outPath, url: `/images/${safeName}` });
@@ -147,18 +145,16 @@ app.post('/save-mask', (req, res) => {
   }
 });
 
-
-// serve the saved files
-app.use('/images', express.static('images'));
-
-
-// npm i puppeteer
+// ------------------------------------------------------------------
+// Puppeteer helper (unchanged behavior)
+// ------------------------------------------------------------------
 const puppeteer = require('puppeteer');
 
 app.post('/find-outdoor-js', async (req, res) => {
   const { lat, lng, target_date, radius = 60, tolerance_m = 12, max_hops = 3 } = req.body || {};
-  if (typeof lat !== 'number' || typeof lng !== 'number' || !target_date)
+  if (typeof lat !== 'number' || typeof lng !== 'number' || !target_date) {
     return res.status(400).json({ error: 'lat, lng, target_date required' });
+  }
 
   const html = `
 <!doctype html><html><body>
@@ -210,7 +206,6 @@ app.post('/find-outdoor-js', async (req, res) => {
   try {
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'load' });
-    // Wait for __OUT__ to be set
     const result = await page.waitForFunction('window.__OUT__!==undefined', { timeout: 15000 });
     const pano = await page.evaluate('window.__OUT__');
     if (!pano) return res.status(404).json({ error: 'No outdoor pano on/before target_date' });
@@ -222,8 +217,29 @@ app.post('/find-outdoor-js', async (req, res) => {
   }
 });
 
-/* ------------------------------------------------------------------ */
-/* 4️⃣ Listen last                                                    */
-app.listen(PORT, () =>
+// ------------------------------------------------------------------
+// Graceful shutdown (explicit endpoint + signals)
+// ------------------------------------------------------------------
+app.post('/shutdown', (req, res) => {
+  res.json({ ok: true });
+  setTimeout(() => {
+    for (const c of clients) { try { c.end(); } catch (_) {} }
+    server.close(() => process.exit(0));
+  }, 10);
+});
+
+process.on('SIGTERM', () => {
+  for (const c of clients) { try { c.end(); } catch (_) {} }
+  server.close(() => process.exit(0));
+});
+process.on('SIGINT', () => {
+  for (const c of clients) { try { c.end(); } catch (_) {} }
+  server.close(() => process.exit(0));
+});
+
+// ------------------------------------------------------------------
+// Start
+// ------------------------------------------------------------------
+const server = app.listen(PORT, () =>
   console.log(`→ http://${HOST}:${PORT}`)
 );

@@ -1,42 +1,55 @@
 # sse_masks.py
-import json, time, threading, requests
+import json
+import time
+import threading
+import requests
+
+def _iter_sse_lines(resp):
+    """Yield complete SSE events as dicts {'id':..., 'data': '...'}."""
+    event = {'id': None, 'data': []}
+    for raw in resp.iter_lines(decode_unicode=True):
+        if raw is None:
+            continue
+        line = raw.strip()
+
+        # blank line -> dispatch current event
+        if line == "":
+            if event['data']:
+                yield {'id': event['id'], 'data': "\n".join(event['data'])}
+            event = {'id': None, 'data': []}
+            continue
+
+        if line.startswith("id:"):
+            event['id'] = line[3:].strip()
+        elif line.startswith("data:"):
+            event['data'].append(line[5:].strip())
+        # ignore other fields
+
+    # flush tail (in case stream ends without blank line)
+    if event['data']:
+        yield {'id': event['id'], 'data': "\n".join(event['data'])}
 
 def start_mask_watcher(base_url: str, on_mask_ready):
     def _loop():
-        url = base_url.rstrip('/') + '/events'
-        last_id = 10**9  # skip existing backlog on the very first connect
+        url = base_url.rstrip('/') + '/events?replay=0'   # ← no backlog
         headers = {'Accept': 'text/event-stream'}
         while True:
             try:
-                h = dict(headers)
-                if last_id:
-                    h['Last-Event-ID'] = str(last_id)
-                with requests.get(url, stream=True, timeout=60, headers=h) as r:
+                with requests.get(url, stream=True, timeout=60, headers=headers) as r:
                     r.raise_for_status()
-                    for line in r.iter_lines(decode_unicode=True):
-                        if not line:
-                            continue
-                        if line.startswith('id:'):
-                            try:
-                                last_id = int(line[3:].strip())
-                            except Exception:
-                                pass
-                            continue
-                        if not line.startswith('data:'):
-                            continue
-                        raw = line[5:].strip()
+                    for evt in _iter_sse_lines(r):
                         try:
-                            evt = json.loads(raw)
+                            payload = json.loads(evt['data'])
                         except Exception:
+                            # some paths might send JSON stringified twice; try once more
                             try:
-                                evt = json.loads(json.loads(raw))
+                                payload = json.loads(json.loads(evt['data']))
                             except Exception:
                                 continue
-                        if isinstance(evt, dict) and evt.get('type') == 'mask-saved':
-                            uuid = evt.get('uuid')
-                            fname = (evt.get('filename') or "").lower()
-                            prof = 'underwater' if 'underwater' in fname else 'overwater'
-                            on_mask_ready(uuid, prof)
+                        if isinstance(payload, dict) and payload.get('type') == 'mask-saved':
+                            fname = (payload.get('filename') or "").lower()
+                            profile = 'underwater' if 'underwater' in fname else 'overwater'
+                            on_mask_ready(payload.get('uuid'), profile)
             except Exception as e:
                 print('[SSE] disconnected, retry in 2s:', e)
                 time.sleep(2)

@@ -115,30 +115,36 @@ const HALF_SIZE_METERS     = 100;    // half-width of the local water box
   }
 
   function upsertMarker({ lon, lat, height, depthValue }) {
-    const pos = Cesium.Cartesian3.fromDegrees(lon, lat, height + 1.5);
-    const text = `Depth: ${Number(depthValue || 0).toFixed(2)} m`;
-
-    if (!markerEntity) {
-      markerEntity = overlay.entities.add({
-        position: pos,
-        point: { pixelSize: 15, color: Cesium.Color.RED, disableDepthTestDistance: Infinity },
-        label: {
-          text,
-          font: '24px sans-serif',
-          fillColor: Cesium.Color.BLUE,
-          showBackground: true,
-          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          disableDepthTestDistance: Infinity
-        }
-      });
+  const pos = Cesium.Cartesian3.fromDegrees(lon, lat, height + 1.5);
+  const text = `Depth: ${Number(depthValue || 0).toFixed(2)} m`;
+  console.log(depthValue)
+  if (!markerEntity) {
+    markerEntity = overlay.entities.add({
+      position: pos,
+      point: { pixelSize: 15, color: Cesium.Color.RED, disableDepthTestDistance: Infinity },
+      label: {
+        text: new Cesium.ConstantProperty(text),   // <-- make it a Property on create
+        font: '24px sans-serif',
+        fillColor: Cesium.Color.BLUE,
+        showBackground: true,
+        horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+        disableDepthTestDistance: Infinity
+      }
+    });
+  } else {
+    markerEntity.position = pos;
+    // ⚠️ update the Property, not just the string:
+    if (markerEntity.label && markerEntity.label.text && markerEntity.label.text.setValue) {
+      markerEntity.label.text.setValue(text);
     } else {
-      markerEntity.position = pos;
-      markerEntity.label.text = text;
+      markerEntity.label.text = new Cesium.ConstantProperty(text);
     }
-    viewer.scene.requestRender();
-    return markerEntity;
   }
+  viewer.scene.requestRender();
+  return markerEntity;
+}
+
 
   initNodeStream(viewer, async (payload) => {
     // DEPTH PAYLOAD
