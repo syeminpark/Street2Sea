@@ -367,7 +367,8 @@ class AddressFormUI(QWidget):
             QLabel[role="subtitle"] {{
                 color: {p.text_muted};
                 font-size: {f.subtitle_pt}pt;
-                padding: 2px 6px 8px 6px;
+                padding: 6px 6px 6px 6px;
+                
             }}
 
             QLineEdit, QDateEdit, QTimeEdit, QComboBox, QDoubleSpinBox, QTextEdit {{
