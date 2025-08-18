@@ -345,3 +345,31 @@ export async function captureAndSendFloodDepthMap(
   await sendCanvasAsPNG(planeDist, filename);
   return planeDist;
 }
+
+
+export function withSolidWaterForCapture(viewer, waterEntity, fn) {
+  if (!waterEntity) return fn();
+
+  // stash current props
+  const prev = {
+    show: waterEntity.show,
+    material: waterEntity.polygon?.material,
+    outlineColor: waterEntity.polygon?.outlineColor
+  };
+
+  // make it opaque for capture
+  waterEntity.show = true;
+  waterEntity.polygon.material     = Cesium.Color.SKYBLUE;          // alpha = 1
+  waterEntity.polygon.outlineColor = Cesium.Color.DARKBLUE;         // alpha = 1
+  viewer.scene.requestRender();
+
+  const done = async () => {
+    // restore after capture
+    waterEntity.polygon.material     = prev.material;
+    waterEntity.polygon.outlineColor = prev.outlineColor;
+    waterEntity.show = prev.show;
+    viewer.scene.requestRender();
+  };
+
+  return Promise.resolve(fn()).finally(done);
+}

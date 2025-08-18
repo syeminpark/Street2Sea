@@ -81,21 +81,46 @@ PROFILES = {
             ]
         },
     },
-    "overwater": {
+       "overwater": {
         "steps": 36, "cfg": 7.0, "denoise": 0.55,
         "sampler": "DPM++ 3M SDE Karras", "scheduler": "Karras", "clip_skip": 1,
         "refiner_switch_at": 0.80,
         "target_wh": (1024, 1024),
-        "prompt": "calm flood water filling the masked area, subtle foam along edges, high detail, photorealistic",
+
+        "prompt": "calm flood water filling the masked area, subtle foam along edges, photorealistic,  highly detailed, lifelike, precise, accurate",
         "negative": (
             "fence, wall, twirls, railing, poles, buildings, wood, barrier, object, debris, distortion, text, logo, "
-            "watermark, people, boats, tree, car, waves, tide, plants, brick, rock, stone, bush"
+            "watermark, people, boats, tree, car, waves, tide, plants, brick, rock, stone, bush, abstract, low detail, unrealistic, inaccurate"
         ),
-        "mask_blur": 1, "inpainting_fill": 0, "inpaint_full_res": False, "inpaint_padding": 32, "invert_mask": 0,
-        "soft_inpaint": None,
-        "controlnet": None,
+
+        "mask_blur": 1, "inpainting_fill": 0, "inpaint_full_res": False,
+        "inpaint_padding": 32, "invert_mask": 0,
+
+        "soft_inpaint": None,             # keep soft inpaint off for overwater
+
+        "controlnet": {
+            "processor_res": 512,
+            "pixel_perfect": True,
+            "units": [
+                {
+                    "enabled": True,
+                    "module": "canny",
+                    "model": CNXL_CANNY,
+                    "weight": 0.3,
+                    "guidance_start": 0.0,
+                    "guidance_end": 0.80,
+                    "threshold_a": 100.0,
+                    "threshold_b": 200.0,
+                    "control_mode": 0,          # Balanced
+                    "resize_mode": 1,           # Crop and Resize
+                    "image_from": "canny",      # use the separate control image
+                    "effective_region_mask": True
+                }
+            ]
+        },
     },
 }
+
 
 _ALIASES = {"new": "underwater", "legacy": "overwater"}
 
@@ -182,6 +207,8 @@ def _cn_unit_template():
         "guidance_start": 0.0,
         "guidance_end": 1.0,
         "pixel_perfect": True,
+         "effective_region_mask": False,
+        "use_effective_region_mask": False,
         "control_mode": "Balanced",
     }
 
@@ -234,48 +261,52 @@ def _maybe_soft_inpaint(alwayson_scripts: dict, profile: dict):
     alwayson_scripts[key] = {"args": args}
     print(f"[soft-inpaint] using '{key}' with args={args}")
 
-
-
-def _maybe_controlnet(alwayson_scripts: dict, profile: dict, init_b64: str, canny_b64: str):
+# --- change signature so we can pass the mask b64 in ---
+def _maybe_controlnet(alwayson_scripts: dict, profile: dict,
+                      init_b64: str, canny_b64: str, eff_mask_b64: str | None = None):
     if os.getenv("IMAGEGEN_DISABLE_CONTROLNET", "").strip():
-        return
+        return []
+
     cn = profile.get("controlnet")
     if not cn:
-        return
-    key = _find_script_key(["control", "net"]) or "controlnet"
-    use_field = os.getenv("IMAGEGEN_CN_FIELD", "input_image").strip().lower()  # 'input_image' (default) or 'image'
+        return []
+
     units_payload = []
     for u in cn.get("units", []):
-        if not u.get("enabled", True):
+        if not isinstance(u, dict) or not u.get("enabled", True):
             continue
-        unit = _cn_unit_template()
-        unit.update({
-                "module": u["module"],
-                "model": u["model"],
-                "weight": float(u.get("weight", 1.0)),
-                "processor_res": int(cn.get("processor_res", 512)),
-                "pixel_perfect": bool(cn.get("pixel_perfect", True)),
-                "threshold_a": float(u.get("threshold_a", 0.0)),
-                "threshold_b": float(u.get("threshold_b", 0.0)),
-                "guidance_start": float(u.get("guidance_start", 0.0)),
-                "guidance_end": float(u.get("guidance_end", 1.0)),
-            })
-            # normalize enum fields to strings to satisfy strict validators
-        rm = u.get("resize_mode", unit.get("resize_mode", "Crop and Resize"))
-        cm = u.get("control_mode", unit.get("control_mode", "Balanced"))
-        unit["resize_mode"] = RESIZE_MODE_MAP.get(rm, RESIZE_MODE_MAP.get(str(rm).lower(), "Crop and Resize"))
-        unit["control_mode"] = CONTROL_MODE_MAP.get(cm, CONTROL_MODE_MAP.get(str(cm).lower(), "Balanced"))
-        src = u.get("image_from", "init")
-        b64 = init_b64 if src == "init" else canny_b64
-        if use_field == "image":
-            unit.pop("input_image", None)
-            unit["image"] = {"image": b64}
-        else:
-            unit.pop("image", None)
-            unit["input_image"] = b64
+
+        unit = {
+            "enabled": True,
+            "module": u.get("module", ""),
+            "model":  u.get("model", ""),
+            "weight": float(u.get("weight", 1.0)),
+            "processor_res": int(cn.get("processor_res", 512)),
+            "pixel_perfect": bool(cn.get("pixel_perfect", True)),
+            "low_vram": bool(u.get("low_vram", False)),
+            "threshold_a": float(u.get("threshold_a", 0.0)),
+            "threshold_b": float(u.get("threshold_b", 0.0)),
+            "guidance_start": float(u.get("guidance_start", 0.0)),
+            "guidance_end":   float(u.get("guidance_end", 1.0)),
+            "resize_mode": RESIZE_MODE_MAP.get(u.get("resize_mode", "Crop and Resize"), RESIZE_MODE_MAP["1"]),
+            "control_mode": CONTROL_MODE_MAP.get(u.get("control_mode", "Balanced"),     CONTROL_MODE_MAP["balanced"]),
+        }
+
+        # supply an independent control image just like the UI checkbox
+        src = str(u.get("image_from", "init")).lower()
+        unit["input_image"] = init_b64 if src == "init" else canny_b64
+
+        # 🟢 Effective region: pass the mask image, don't send boolean flags
+        if u.get("effective_region_mask") or u.get("use_effective_region_mask"):
+            if eff_mask_b64:
+                unit["mask"] = eff_mask_b64
+
         units_payload.append(unit)
+
     if units_payload:
-        alwayson_scripts[key] = {"args": units_payload}
+        alwayson_scripts["controlnet"] = {"args": units_payload}  # legacy path
+    return units_payload
+
 
 # ----------------- Public API -----------------
 def generate_from_files(street_image: str, mask_image: str, out_path: str,
@@ -301,7 +332,7 @@ def generate_from_files(street_image: str, mask_image: str, out_path: str,
     canny_b64 = _b64(canny_img)
 
     alwayson = {}
-    _maybe_controlnet(alwayson, prof, init_b64, canny_b64)
+    units = _maybe_controlnet(alwayson, prof, init_b64, canny_b64, eff_mask_b64=mask_b64)
     _maybe_soft_inpaint(alwayson, prof)
 
     w, h = prof["target_wh"]
@@ -328,6 +359,8 @@ def generate_from_files(street_image: str, mask_image: str, out_path: str,
         "resize_mode": 1,
         "alwayson_scripts": alwayson,
     }
+    if units:
+        payload["controlnet_units"] = units
 
     result = _post("img2img", payload)
     infotext = None
