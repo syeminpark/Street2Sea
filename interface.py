@@ -401,7 +401,7 @@ class AddressForm(AddressFormUI):
     def _open_mask_for_current_uuid(self):
         uuid = getattr(self, "current_uuid", None)
         if not uuid:
-            self.log.append("⚠ No UUID yet for this view. Submit first.")
+            self.log.append("⚠ No Flood Mask to show.")
             return
 
         base = Path("images")

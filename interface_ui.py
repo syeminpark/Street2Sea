@@ -14,9 +14,11 @@ from pykakasi import kakasi
 from interface_utility import make_autofill_on_tab
 from clickable_label import ClickableLabel
 from constants import FONTS, FONT_STACKS, to_css_stack, PALETTE
+from title import VerticalTitle
 
 
 # ---------- visual helpers ----------
+
 
 class DropShadowCard(QWidget):
     def __init__(self, blur=24, y=10, alpha=140, parent=None):
@@ -146,6 +148,7 @@ class AddressFormUI(QWidget):
         self._apply_styles()
         self._postprocess_spinboxes()
         self._init_kakasi()
+        self._install_vertical_title()
 
     # helpers
     def _add_shadow(self, w, blur=24, y=10, alpha=140):
@@ -336,13 +339,13 @@ class AddressFormUI(QWidget):
         bottom = QHBoxLayout()
         bottom.addWidget(self._make_image_panel("Street-View", "img1_label",
                                                "Google Street View for the entered address."), 0)
-        self.cesium_panel = self._make_gpu_panel("3-D Map",
+        self.cesium_panel = self._make_gpu_panel("Flood Map",
                                                  frame_attr_name="cesium_media_frame",
                                                  placeholder_attr_name="cesium_placeholder",
-                                                 desc="3D scene of the street-view location")
+                                                 desc="3D rendered flood map based on flood depth at the location.")
         bottom.addWidget(self.cesium_panel, 0)
         bottom.addWidget(self._make_image_panel("AI-Generation", "img2_label",
-                                                "AI-generated image based on flood depth."), 0)
+                                                "AI generated image based on flood map and street view image"), 0)
         root.addLayout(bottom)
 
     def _apply_styles(self):
@@ -449,3 +452,30 @@ class AddressFormUI(QWidget):
     def _make_subtitle(self, text: str) -> QLabel:
         lbl = QLabel(text); lbl.setAlignment(Qt.AlignCenter)
         lbl.setProperty("role", "subtitle"); return lbl
+    
+    def _install_vertical_title(self):
+        # Create the strip with your exact phrasing (can be updated later)
+        title_text = "SAFE: Street view based AI Images from Forcast simulations for Evacuation"
+        self._title_strip = VerticalTitle(title_text, self, strip_width=96)
+
+        old_layout = self.layout()
+        if old_layout is None:
+            # If parent UI hasn't set a layout, just make a new H layout
+            outer = QHBoxLayout(self)
+            outer.setContentsMargins(0, 0, 0, 0)
+            outer.setSpacing(0)
+            outer.addWidget(self._title_strip)
+            # Let consuming code add the rest later
+            return
+
+        # Re-wrap existing content into a container so we can prepend the strip
+        content = QWidget(self)
+        content.setLayout(old_layout)
+
+        outer = QHBoxLayout()
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        outer.addWidget(self._title_strip)  # fixed width on the left
+        outer.addWidget(content, 1)         # your existing UI fills the rest
+
+        self.setLayout(outer)
