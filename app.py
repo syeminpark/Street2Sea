@@ -96,6 +96,11 @@ class FormWorker(QObject):
                 resolution = "override"
             else:
                 dt_fetched, resolution = find_and_download_flood_data(target_dt_utc)
+                if dt_fetched is None or resolution is None:
+                    self.error.emit("__NO_FORECAST__")
+                    return
+
+
                 ds_depth = openClosestFile(TEJapanFileType.DEPTH, target_dt_utc)
                 depth_value, depth_time = getNearestValueByCoordinates(ds_depth, coords, target_dt_utc)
 
@@ -217,15 +222,17 @@ def _on_depth_from_worker(depth_value, dt_fetched, depth_time, resolution, packe
 def _on_worker_error(msg):
     if msg == "__NO_PANO__":
         w.log.append("⚠ No Street-View panorama found on/before the selected date near this address.")
-        QMessageBox.information(
-            w, "No panorama found",
-            "No Street-View panorama was found on/before the selected date near this address."
-        )
+        QMessageBox.information(w, "No panorama found",
+                                "No Street-View panorama was found on/before the selected date near this address.")
+    elif msg == "__NO_FORECAST__":
+        w.log.append("⚠ No forecast data is available for the selected hour.\n")
+        QMessageBox.information(w, "No forecast",
+                                "No forecast data is available for the selected hour.\n"
+                                "Try a different time (3-hour steps) or wait for a later run.")
     else:
         w.log.append(f"⚠ Error: {msg}")
         QMessageBox.warning(w, "Error", msg)
 
-    # Quiet the overlay and let user try again
     w.connector.reset(quiet=True)
     w.submit_btn.setEnabled(True)
 

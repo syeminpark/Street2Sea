@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple
 
 from constants import TEJapanDirectory, TEJapanFileType
 
+
 # Load environment variables
 load_dotenv()
 FTP_HOST = "ftp.eorc.jaxa.jp"
@@ -36,6 +37,7 @@ def list_files_for_date(ftp: FTP, date: datetime) -> None:
         pass
 
 
+
 def find_most_recent_valid_folder(
     ftp: FTP,
     target_time: datetime,
@@ -50,53 +52,38 @@ def find_most_recent_valid_folder(
         except error_perm:
             continue
 
-        # collect all hourly folders (00–23) as ints, sorted descending
-        hours = sorted(
-            [int(name) for name in entries if name.isdigit() and len(name) == 2],
-            reverse=True
-        )
-
+        hours = sorted([int(e) for e in entries if e.isdigit() and len(e) == 2], reverse=True)
         for hr in hours:
-            # on the same day, ignore hours > target_time.hour;
-            # on earlier days, accept any hour
             if day_offset == 0 and hr > target_time.hour:
                 continue
-
             folder_path = f"{date_path}/{hr:02d}"
             try:
                 ftp.cwd(folder_path)
                 return check_date.replace(hour=hr, minute=0, second=0, microsecond=0)
             except error_perm:
-                # maybe this hour folder is protected; keep looking
                 continue
-
     return None
 
 
-
-def _download_one(ftp: FTP, folder: str, filename: str, dest_dir: str) -> None:
+def _download_one(ftp: FTP, folder: str, filename: str, dest_dir: str) -> str:
     os.makedirs(dest_dir, exist_ok=True)
     local_path = os.path.join(dest_dir, filename)
     if os.path.exists(local_path):
         print(f"ℹ️  Skipping download; file already exists: {local_path}")
-        return
-    
+        return local_path
     print(f"⬇ Downloading: {filename}")
     ftp.cwd(folder)
     with open(local_path, "wb") as f:
         ftp.retrbinary(f"RETR {filename}", f.write)
     print(f"✅ Saved: {local_path}")
+    return local_path
 
+def find_and_download_flood_data(target_time: datetime) -> Tuple[Optional[datetime], Optional[str]]:
+    ftp = connect_ftp()
 
-def find_and_download_flood_data(
-    target_time: datetime
-) -> Tuple[Optional[datetime], Optional[str]]:
-    ftp = connect_ftp() 
-    
-    # Step 2: locate the best run folder
     run_dt = find_most_recent_valid_folder(ftp, target_time)
     if run_dt is None:
-        print(f"❌ No available forecast folder found within {MAX_DAYS_BACK} days of {target_time}")
+        print(f"❌ No available forecast folder within {MAX_DAYS_BACK} days of {target_time}")
         ftp.quit()
         return None, None
 
@@ -119,41 +106,34 @@ def find_and_download_flood_data(
 
     print(f"🔍 Using run at {run_dt:%Y-%m-%d %H:00}, lead={lead}h (folder={folder})")
 
-    downloaded = []
-    used_resolution = None
-    types: List[TEJapanFileType] = [
-        TEJapanFileType.DEPTH,
-        TEJapanFileType.FRACTION
-    ]
     dest = TEJapanDirectory.DIRECTORY.value
+    types: List[TEJapanFileType] = [TEJapanFileType.DEPTH, TEJapanFileType.FRACTION]
+
+    used_resolution = None
+    downloaded_locals = []  # keep local paths for cleanup if partial
 
     for var in types:
-        # For 15S resolution, filenames include the lead hour
         fn15 = f"TE-JPN15S_MSM_{prefix}_{var.value}.nc"
-        # For 01M resolution, 
         fn01 = f"TE-JPN01M_MSM_{prefix}_{var.value}.nc"
 
         if fn15 in all_files:
-            _download_one(ftp, folder, fn15, dest)
-            downloaded.append(var)
-            used_resolution = "15S"
+            downloaded_locals.append(_download_one(ftp, folder, fn15, dest))
+            used_resolution = used_resolution or "15S"
         elif fn01 in all_files:
-            _download_one(ftp, folder, fn01, dest)
-            downloaded.append(var)
-            if used_resolution is None:
-                used_resolution = "01M"
+            downloaded_locals.append(_download_one(ftp, folder, fn01, dest))
+            used_resolution = used_resolution or "01M"
         else:
-            print(f"⚠️ Missing both patterns for {var.value} at lead {lead}: tried {fn15} and {fn01}")
-            break
+            print(f"❌ No forecast file for {var.value} at {prefix} (checked {fn15} and {fn01})")
+            # cleanup any partials we downloaded so we don't leave stale files
+            for p in downloaded_locals:
+                try: os.remove(p)
+                except Exception: pass
+            ftp.quit()
+            return None, None
 
     ftp.quit()
-
-    if len(downloaded) == len(types):
-        print(f"✅ Completed fetch: run {run_dt:%Y-%m-%d %H:00}, lead {lead}h via {used_resolution}")
-        return run_dt, used_resolution
-    else:
-        print(f"⚠️ Could not download all files for lead {lead}")
-        return run_dt, None
+    print(f"✅ Completed fetch: run {run_dt:%Y-%m-%d %H:00}, lead {lead}h via {used_resolution}")
+    return run_dt, used_resolution
 
 
 if __name__ == "__main__":
