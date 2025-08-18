@@ -5,6 +5,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const puppeteer = require('puppeteer');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -17,6 +18,7 @@ const CAMERA_METADATA_ROUTE = process.env.CAMERA_METADATA_ROUTE || '/api/coords'
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ limit: '25mb', extended: true }));
 
+// Serve saved masks
 app.use('/images', express.static(path.join(__dirname, '..', 'images')));
 
 // ------------------------------------------------------------------
@@ -54,14 +56,28 @@ app.use(
 app.use(express.static('.'));
 
 // ------------------------------------------------------------------
-// SSE: live-only stream with a tiny "pending until first client" queue
+// SSE: live-only stream with optional “viewer ready” gating
 // ------------------------------------------------------------------
-const clients = new Set();   // active SSE response streams
+const clients = new Map();   // cid -> res (SSE response stream)
+const readyCids = new Set(); // cids that have called /client-ready
 let nextEventId = 1;
 
 // Hold events only while there are zero clients connected.
 // This is NOT persistent; it's cleared the moment a client connects.
 let pending = [];            // items: { id, data }
+
+// Long-poll waiters for readiness
+const waiters = new Set();   // items: { min, minReady, res, t }
+
+function _notifyWaiters() {
+  for (const w of Array.from(waiters)) {
+    if (clients.size >= w.min && readyCids.size >= w.minReady) {
+      clearTimeout(w.t);
+      waiters.delete(w);
+      try { w.res.json({ ok: true, clients: clients.size, ready: readyCids.size }); } catch {}
+    }
+  }
+}
 
 function broadcast(payload) {
   const id = nextEventId++;
@@ -73,9 +89,9 @@ function broadcast(payload) {
   }
 
   let delivered = 0;
-  for (const stream of clients) {
-    stream.write(`id: ${id}\n`);
-    stream.write(`data: ${data}\n\n`);
+  for (const res of clients.values()) {
+    res.write(`id: ${id}\n`);
+    res.write(`data: ${data}\n\n`);
     delivered++;
   }
   return { id, delivered, queued: pending.length };
@@ -83,6 +99,8 @@ function broadcast(payload) {
 
 // /events: live stream; on first connection, flush pending once and clear it
 app.get('/events', (req, res) => {
+  const cid = String(req.query.cid || `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
   res.set({
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -92,8 +110,8 @@ app.get('/events', (req, res) => {
   res.flushHeaders();
   res.write('retry: 15000\n\n');
 
-  clients.add(res);
-    _notifyWaiters();       
+  clients.set(cid, res);
+  _notifyWaiters();
 
   // Flush any events queued while there were no clients
   if (pending.length) {
@@ -105,8 +123,65 @@ app.get('/events', (req, res) => {
   }
 
   const ping = setInterval(() => res.write(`: ping ${Date.now()}\n\n`), 15000);
-  req.on('close', () => { clearInterval(ping); clients.delete(res); });
+  req.on('close', () => {
+    clearInterval(ping);
+    clients.delete(cid);
+    readyCids.delete(cid);
+    _notifyWaiters();
+  });
 });
+
+// Mark this connection's cid as "viewer ready"
+app.post('/client-ready', (req, res) => {
+  const cid = String(req.query.cid || '');
+  if (!cid) return res.status(400).json({ ok: false, error: 'missing cid' });
+  if (!clients.has(cid)) return res.status(410).json({ ok: false, error: 'cid not connected' });
+  readyCids.add(cid);
+  _notifyWaiters();
+  res.json({ ok: true, clients: clients.size, ready: readyCids.size });
+});
+
+// Long-poll until >=min clients AND >=minReady ready clients (default 1/1)
+app.post('/wait', (req, res) => {
+  const q = req.query || {};
+  const min = Math.max(1, parseInt(q.min, 10) || 1);
+  const minReady = Math.max(0, parseInt(q.minReady, 10) || 1);
+  const timeoutMs = Math.min(60000, parseInt(q.timeout, 10) || 10000);
+
+  if (clients.size >= min && readyCids.size >= minReady) {
+    return res.json({ ok: true, clients: clients.size, ready: readyCids.size });
+  }
+
+  const t = setTimeout(() => {
+    waiters.delete(entry);
+    res.status(408).json({ ok: false, timeout: true, clients: clients.size, ready: readyCids.size });
+  }, timeoutMs);
+
+  const entry = { min, minReady, res, t };
+  waiters.add(entry);
+  req.on('close', () => { clearTimeout(t); waiters.delete(entry); });
+});
+
+// Back-compat: long-poll until >=min clients (ignores readiness)
+app.post('/wait-clients', (req, res) => {
+  const q = req.query || {};
+  const min = Math.max(1, parseInt(q.min, 10) || 1);
+  const timeoutMs = Math.min(60000, parseInt(q.timeout, 10) || 10000);
+
+  if (clients.size >= min) return res.json({ ok: true, clients: clients.size });
+
+  const t = setTimeout(() => {
+    waiters.delete(entry);
+    res.status(408).json({ ok: false, timeout: true, clients: clients.size });
+  }, timeoutMs);
+
+  const entry = { min, minReady: 0, res, t };
+  waiters.add(entry);
+  req.on('close', () => { clearTimeout(t); waiters.delete(entry); });
+});
+
+// Quick probe
+app.get('/clients', (_, res) => res.json({ clients: clients.size, ready: readyCids.size }));
 
 // ------------------------------------------------------------------
 // API that Python posts to (camera metas / depth)
@@ -151,8 +226,6 @@ app.post('/save-mask', (req, res) => {
 // ------------------------------------------------------------------
 // Puppeteer helper (unchanged behavior)
 // ------------------------------------------------------------------
-const puppeteer = require('puppeteer');
-
 app.post('/find-outdoor-js', async (req, res) => {
   const { lat, lng, target_date, radius = 60, tolerance_m = 12, max_hops = 3 } = req.body || {};
   if (typeof lat !== 'number' || typeof lng !== 'number' || !target_date) {
@@ -209,7 +282,7 @@ app.post('/find-outdoor-js', async (req, res) => {
   try {
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'load' });
-    const result = await page.waitForFunction('window.__OUT__!==undefined', { timeout: 15000 });
+    await page.waitForFunction('window.__OUT__!==undefined', { timeout: 15000 });
     const pano = await page.evaluate('window.__OUT__');
     if (!pano) return res.status(404).json({ error: 'No outdoor pano on/before target_date' });
     res.json({ ok: true, pano });
@@ -226,62 +299,23 @@ app.post('/find-outdoor-js', async (req, res) => {
 app.post('/shutdown', (req, res) => {
   res.json({ ok: true });
   setTimeout(() => {
-    for (const c of clients) { try { c.end(); } catch (_) {} }
+    for (const r of clients.values()) { try { r.end(); } catch (_) {} }
     server.close(() => process.exit(0));
   }, 10);
 });
 
 process.on('SIGTERM', () => {
-  for (const c of clients) { try { c.end(); } catch (_) {} }
+  for (const r of clients.values()) { try { r.end(); } catch (_) {} }
   server.close(() => process.exit(0));
 });
 process.on('SIGINT', () => {
-  for (const c of clients) { try { c.end(); } catch (_) {} }
+  for (const r of clients.values()) { try { r.end(); } catch (_) {} }
   server.close(() => process.exit(0));
 });
 
 // ------------------------------------------------------------------
 // Start
 // ------------------------------------------------------------------
-
-
-
-// --- add helpers above /events ---
-const waiters = new Set(); // {min, res, t}
-function _notifyWaiters() {
-  for (const w of Array.from(waiters)) {
-    if (clients.size >= w.min) {
-      clearTimeout(w.t);
-      waiters.delete(w);
-      try { w.res.json({ ok: true, clients: clients.size }); } catch {}
-    }
-  }
-}
-
-// Quick probe
-app.get('/clients', (_, res) => res.json({ clients: clients.size }));
-
-// Long-poll until we have >= min clients (default 1) or timeout (default 10s)
-app.post('/wait-clients', (req, res) => {
-  const q = req.query || {};
-  const min = Math.max(1, parseInt(q.min, 10) || 1);
-  const timeoutMs = Math.min(60000, parseInt(q.timeout, 10) || 10000);
-
-  if (clients.size >= min) return res.json({ ok: true, clients: clients.size });
-
-  const t = setTimeout(() => {
-    waiters.delete(entry);
-    res.status(408).json({ ok: false, timeout: true, clients: clients.size });
-  }, timeoutMs);
-
-  const entry = { min, res, t };
-  waiters.add(entry);
-  req.on('close', () => { clearTimeout(t); waiters.delete(entry); });
-});
-
-
-
-
 const server = app.listen(PORT, () =>
   console.log(`→ http://${HOST}:${PORT}`)
 );

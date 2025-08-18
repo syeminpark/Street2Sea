@@ -10,7 +10,7 @@ from preprocessNCFile import openClosestFile, getNearestValueByCoordinates, buil
 from constants import TEJapanFileType, WebDirectory
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from pythonToJS import start_node, sendToNode, wait_health, wait_for_clients
+from pythonToJS import start_node, sendToNode, wait_health, wait_for_ready
 from imageUtility import save_images
 from imageGen import generate_from_uuid
 import threading, json, os
@@ -18,6 +18,8 @@ from sse_masks import start_mask_watcher
 from imageGen import _normalize_uuid
 from collections import OrderedDict
 from PyQt5.QtCore import QTimer
+import threading
+
 
 
 _recent = OrderedDict()
@@ -42,6 +44,18 @@ class UiBus(QObject):
     
 
 bus = None
+
+def _wait_and_send(payload, label="payload"):
+    ok = wait_for_ready(min_clients=1, min_ready=1, timeout_sec=30)
+    if ok:
+        bus.progress.emit(f"✅ Sending {label} data to 3D viewer.")
+    else:
+        bus.progress.emit(f"⚠ Failed to send {label} data to 3D viewer.")
+    try:
+        sendToNode(payload, API_URL)
+    except Exception as e:
+        bus.progress.emit(f"POST failed for {label}: {e}")
+        
 
 def on_mask_ready(uuid: str, profile: str = "underwater"):
     if "_naive" in uuid.lower():
@@ -130,10 +144,7 @@ def handle_form(data):
         w.set_street_images(tiles, metas)
         w.ensure_map_started()
 
-        if not wait_for_clients(min_clients=1, timeout_sec=10):
-            w.log.append("⚠ No SSE client yet; proceeding (server will queue if configured).")
-        
-        sendToNode(metas, API_URL)
+        threading.Thread(target=_wait_and_send, args=(metas, "Streetview image meta"), daemon=True).start()
 
 
 
@@ -157,7 +168,7 @@ def handle_form(data):
             "lng": metas[0]["lng"],
             "size": metas[0]["size"],
         }
-        sendToNode(depth_payload, API_URL)
+        threading.Thread(target=_wait_and_send, args=(depth_payload, "Flood depth"), daemon=True).start()
 
     except Exception as e:
         msg = str(e)

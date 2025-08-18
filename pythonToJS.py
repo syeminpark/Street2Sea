@@ -171,12 +171,13 @@ def wait_health(url: str, tries: int = 60, delay: float = 0.15):
     raise RuntimeError("Node never reached /health")
 
 
-# add in node_runner.py (or pythonToJS)
-def wait_for_clients(min_clients: int = 1, timeout_sec: float = 10.0) -> bool:
+BASE_URL = f"http://{WebDirectory.HOST.value}:{WebDirectory.PORT.value}"
+
+def wait_for_ready(min_clients: int = 1, min_ready: int = 1, timeout_sec: float = 12.0) -> bool:
     try:
         r = requests.post(
-            BASE_URL + "/wait-clients",
-            params={"min": min_clients, "timeout": int(timeout_sec * 1000)},
+            BASE_URL + "/wait",
+            params={"min": min_clients, "minReady": min_ready, "timeout": int(timeout_sec * 1000)},
             timeout=timeout_sec + 2,
         )
         return r.ok and r.json().get("ok", False)
