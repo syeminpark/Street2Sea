@@ -236,6 +236,7 @@ def _fetch_image_bytes(pano_id: str, width: int, height: int, heading: int, pitc
     return data
 
 # ------------------- public API (unchanged signatures) -------------------
+
 def getStreetViewByDate(
     coordinates: str,
     target_date: str,
@@ -252,6 +253,13 @@ def getStreetViewByDate(
     mlat = getattr(getattr(meta, "location", SimpleNamespace()), "lat", None)
     mlng = getattr(getattr(meta, "location", SimpleNamespace()), "lng", None)
 
+    # NEW: compute distance (camera pano position → requested address coords)
+    try:
+        addr_lat, addr_lng = map(float, coordinates.split(","))
+        distance_m = haversine(addr_lat, addr_lng, float(mlat), float(mlng)) if (mlat is not None and mlng is not None) else None
+    except Exception:
+        distance_m = None
+
     metadata = {
         "pano_id": pano.pano_id,
         "date": getattr(meta, "date", None),
@@ -264,8 +272,10 @@ def getStreetViewByDate(
         "height": height,
         "size": f"{width}x{height}",
         "location": coordinates,
+        "distance_m": distance_m,     # ← NEW
     }
     return [img], [metadata]
+
 
 def getPanoramaByDateTiles(
     coordinates: str,
@@ -315,10 +325,9 @@ def getStreetViewOfBuilding(
     if mlat is None or mlng is None:
         raise RuntimeError("Panorama location missing; cannot compute bearing")
 
-    _, bearing = haversine_and_bearing(
-        mlat, mlng,
-        *map(float, building_coords.split(","))
-    )
+    addr_lat, addr_lng = map(float, building_coords.split(","))
+    distance_m, bearing = haversine_and_bearing(mlat, mlng, addr_lat, addr_lng)
+
     img = _fetch_image_bytes(pano.pano_id, width, height, int(bearing), pitch, fov)
     metadata = {
         "pano_id": pano.pano_id,
@@ -331,7 +340,8 @@ def getStreetViewOfBuilding(
         "heading": int(bearing),
         "fov": fov,
         "size": f"{width}x{height}",
-        "location": building_coords
+        "location": building_coords,
+        "distance_m": distance_m,     # ← NEW
     }
     return [img], [metadata]
 

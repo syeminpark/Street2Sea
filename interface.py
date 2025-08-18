@@ -172,11 +172,12 @@ class AddressForm(AddressFormUI):
 
     # ---------- submit ----------
     def _on_submit(self):
+        self.log.clear()   
         mode = (
             PerspectiveMode.SURROUNDING if self.rb_surrounding.isChecked()
             else PerspectiveMode.BUILDING
         )
-        self.log.append("Form submitted.")
+        self.log.append("Input Form submitted.")
         payload = {
             'date': self.date_edit.date().toString('yyyy-MM-dd'),
             'time': self.time_edit.time().toString('HH:mm'),
@@ -288,11 +289,13 @@ class AddressForm(AddressFormUI):
 
             meta = self.street_meta[self.current_street_index]
             self.current_uuid = meta.get("uuid", getattr(self, "current_uuid", None))
+            
 
             meta_text = ', '.join(f"{k}: {v}" for k, v in meta.items())
             idx = self.current_street_index + 1
             total = len(self.street_images)
-            self.log.append(f"✔ Street-View {idx}/{total} displayed ({meta_text}).")
+            self.log.append(f"\n✔ Street-View {idx}/{total} displayed.")
+            # self.log.append(f"\n✔ Street-View {idx}/{total} displayed ({meta_text}).")
         else:
             self.log.append("⚠ Failed to load Street-View image data.")
         self._position_nav_buttons()
@@ -380,7 +383,7 @@ class AddressForm(AddressFormUI):
             if target.width() > 0 and target.height() > 0:
                 scaled = pix.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 self.img2_label.setPixmap(scaled)
-            self.log.append("✔ AI-generated image displayed.")
+            self.log.append("✔ AI-generated image displayed.\n")
             self.connector.set_ai_ready(True)
         else:
             self.log.append("⚠ Failed to load AI-generated image.")
