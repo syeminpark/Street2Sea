@@ -17,6 +17,8 @@ const CAMERA_METADATA_ROUTE = process.env.CAMERA_METADATA_ROUTE || '/api/coords'
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ limit: '25mb', extended: true }));
 
+app.use('/images', express.static(path.join(__dirname, '..', 'images')));
+
 // ------------------------------------------------------------------
 // Root: inject Cesium ION token into index.template.html
 // ------------------------------------------------------------------
@@ -91,6 +93,7 @@ app.get('/events', (req, res) => {
   res.write('retry: 15000\n\n');
 
   clients.add(res);
+    _notifyWaiters();       
 
   // Flush any events queued while there were no clients
   if (pending.length) {
@@ -240,6 +243,45 @@ process.on('SIGINT', () => {
 // ------------------------------------------------------------------
 // Start
 // ------------------------------------------------------------------
+
+
+
+// --- add helpers above /events ---
+const waiters = new Set(); // {min, res, t}
+function _notifyWaiters() {
+  for (const w of Array.from(waiters)) {
+    if (clients.size >= w.min) {
+      clearTimeout(w.t);
+      waiters.delete(w);
+      try { w.res.json({ ok: true, clients: clients.size }); } catch {}
+    }
+  }
+}
+
+// Quick probe
+app.get('/clients', (_, res) => res.json({ clients: clients.size }));
+
+// Long-poll until we have >= min clients (default 1) or timeout (default 10s)
+app.post('/wait-clients', (req, res) => {
+  const q = req.query || {};
+  const min = Math.max(1, parseInt(q.min, 10) || 1);
+  const timeoutMs = Math.min(60000, parseInt(q.timeout, 10) || 10000);
+
+  if (clients.size >= min) return res.json({ ok: true, clients: clients.size });
+
+  const t = setTimeout(() => {
+    waiters.delete(entry);
+    res.status(408).json({ ok: false, timeout: true, clients: clients.size });
+  }, timeoutMs);
+
+  const entry = { min, res, t };
+  waiters.add(entry);
+  req.on('close', () => { clearTimeout(t); waiters.delete(entry); });
+});
+
+
+
+
 const server = app.listen(PORT, () =>
   console.log(`→ http://${HOST}:${PORT}`)
 );

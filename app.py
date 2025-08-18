@@ -10,7 +10,7 @@ from preprocessNCFile import openClosestFile, getNearestValueByCoordinates, buil
 from constants import TEJapanFileType, WebDirectory
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from pythonToJS import start_node, sendToNode, wait_health
+from pythonToJS import start_node, sendToNode, wait_health, wait_for_clients
 from imageUtility import save_images
 from imageGen import generate_from_uuid
 import threading, json, os
@@ -129,6 +129,10 @@ def handle_form(data):
 
         w.set_street_images(tiles, metas)
         w.ensure_map_started()
+
+        if not wait_for_clients(min_clients=1, timeout_sec=10):
+            w.log.append("⚠ No SSE client yet; proceeding (server will queue if configured).")
+        
         sendToNode(metas, API_URL)
 
 
