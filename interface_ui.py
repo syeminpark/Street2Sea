@@ -412,12 +412,19 @@ class AddressFormUI(QWidget):
         rows.addRow("Custom Flood Depth (m):", ov_layout)
 
         fv.addLayout(rows)
-        fv.addStretch(1)
         self.submit_btn = QPushButton("Submit")
         self.submit_btn.setAutoDefault(False)
         self.submit_btn.setDefault(False)
-        self.submit_btn.setMinimumHeight(36)
-        fv.addWidget(self.submit_btn)
+        self.submit_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.submit_btn.setMinimumHeight(40)  # stronger than before
+
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 10, 0, 0)   # <- 10px gap above the button
+        btn_row.addWidget(self.submit_btn)
+
+        fv.addLayout(btn_row)
+
+     
         top.addWidget(form_panel, 1)
         self._add_shadow(form_panel)
 

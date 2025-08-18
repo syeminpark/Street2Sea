@@ -21,7 +21,7 @@ class WebDirectory(Enum):
 
 @dataclass(frozen=True)
 class Fonts:
-    base_pt: int = 25
+    base_pt: int = 20
     title_mult: float = 1.6
     subtitle_mult: float = 0.8
 
