@@ -20,6 +20,7 @@ class ConnectorOverlay(QWidget):
 
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.show_idle = True 
 
         # host main window we track
         self.host = host_window
@@ -61,6 +62,16 @@ class ConnectorOverlay(QWidget):
         # position ourselves over the host
         self._reposition()
         self.show()
+    def _draw_idle(self, p: QPainter, path: QPainterPath, base_w: float):
+        # dim, static line (no animation)
+        col = QColor(self.col_ready)
+        col.setAlpha(120)  # faint
+        pen = QPen(col)
+        pen.setWidthF(base_w)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen)
+        p.drawPath(path)
 
     # ---------- public API ----------
     def set_widgets(self, left, mid, right):
@@ -85,13 +96,31 @@ class ConnectorOverlay(QWidget):
         self._update_anim()
         self.update()
 
-    def reset(self):
+    def reset(self, quiet=False):
         self.tiles_ready = False
         self.ai_ready = False
         self._pulse_r = 0.0
         self._pulse_v = 0.0
+        if quiet:
+            # stop waiting animation but keep faint static connectors
+            self.animate_when_waiting_line1 = False
+            self.animate_when_waiting_line2 = False
+            self.show_idle = True
+        else:
+            # default behavior: show waiting animation when not-ready
+            self.animate_when_waiting_line1 = True
+            self.animate_when_waiting_line2 = True
+            self.show_idle = False
         self._update_anim()
         self.update()
+
+    def resume(self):
+        self.animate_when_waiting_line1 = True
+        self.animate_when_waiting_line2 = True
+        self.show_idle = False
+        self._update_anim()
+        self.update()
+
 
     # ---------- internals ----------
     def eventFilter(self, obj, ev):
@@ -105,24 +134,34 @@ class ConnectorOverlay(QWidget):
         self.raise_()
 
     def _tick(self):
-        self._phase = (self._phase + 0.018) % 1.0  # 0..1
+        self._phase = (self._phase + 0.018) % 1.0
         if self._pulse_v != 0.0:
-            # critically damped pulse that grows then fades
             self._pulse_r += self._pulse_v
             self._pulse_v *= 0.92
             if self._pulse_r < 0.5:
                 self._pulse_v = 0.0
                 self._pulse_r = 0.0
-        # keep animating while loading or while pulse is active
-        if (not self.tiles_ready) or (not self.ai_ready) or (self._pulse_r > 0.0):
+
+        # respect the waiting-animation flags here too
+        waiting_anim = ((not self.tiles_ready) and self.animate_when_waiting_line1) or \
+                    ((not self.ai_ready)    and self.animate_when_waiting_line2)
+        need_anim = waiting_anim or (self._pulse_r > 0.0)
+
+        if need_anim:
             if not self._timer.isActive():
                 self._timer.start()
         else:
             self._timer.stop()
+
         self.update()
 
     def _update_anim(self):
-        need_anim = (not self.tiles_ready) or (not self.ai_ready) or (self._pulse_r > 0.0)
+        # only animate if waiting AND that waiting animation is enabled,
+        # or if a celebration pulse is still running
+        waiting_anim = ((not self.tiles_ready) and self.animate_when_waiting_line1) or \
+                    ((not self.ai_ready)    and self.animate_when_waiting_line2)
+        need_anim = waiting_anim or (self._pulse_r > 0.0)
+
         if need_anim and not self._timer.isActive():
             self._timer.start()
         elif not need_anim and self._timer.isActive():
@@ -245,6 +284,8 @@ class ConnectorOverlay(QWidget):
         else:
             if self.animate_when_waiting_line1:
                 self._draw_waiting(p, path1, self.wait_width)
+            elif self.show_idle:
+                self._draw_idle(p, path1, self.wait_width)
 
         a2, b2 = self._anchors(self.w_mid, self.w_right)
         path2 = self._path(a2, b2)
@@ -253,3 +294,5 @@ class ConnectorOverlay(QWidget):
         else:
             if self.animate_when_waiting_line2:
                 self._draw_waiting(p, path2, self.wait_width)
+            elif self.show_idle:
+                self._draw_idle(p, path2, self.wait_width)

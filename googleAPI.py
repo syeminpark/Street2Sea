@@ -1,4 +1,4 @@
-# googleapi.py
+# googleAPI.py
 
 import os
 import requests
@@ -22,10 +22,6 @@ _meta_cache: dict[str, object] = {}
 
 # ------------------- geocode -------------------
 def addressToCoordinates(address: str) -> str:
-    """
-    Returns "lat,lng" for the given address, or raises RuntimeError
-    if the Geocoding API returns anything other than status='OK'.
-    """
     url = "https://maps.googleapis.com/maps/api/geocode/json"
     resp = requests.get(url, params={"address": address, "key": GOOGLE_API_KEY}, timeout=10)
     data = resp.json()
@@ -37,10 +33,7 @@ def addressToCoordinates(address: str) -> str:
 
 # ------------------- geometry -------------------
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """
-    Great-circle distance in meters between two coordinates.
-    """
-    R = 6371000  # earth radius in meters
+    R = 6371000
     φ1, φ2 = math.radians(lat1), math.radians(lat2)
     dφ = math.radians(lat2 - lat1)
     dλ = math.radians(lon2 - lon1)
@@ -49,9 +42,6 @@ def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return R * c
 
 def haversine_and_bearing(lat1: float, lon1: float, lat2: float, lon2: float):
-    """
-    Returns (distance_meters, bearing_degrees) from point1 to point2.
-    """
     dist = haversine(lat1, lon1, lat2, lon2)
     φ1, φ2 = math.radians(lat1), math.radians(lat2)
     Δλ = math.radians(lon2 - lon1)
@@ -62,11 +52,6 @@ def haversine_and_bearing(lat1: float, lon1: float, lat2: float, lon2: float):
 
 # ------------------- metadata -------------------
 def fetch_meta(pano_id: str):
-    """
-    Fetch panorama metadata with caching and graceful fallback when the 'date'
-    field is missing or validation fails in the streetview library.
-    Returns an object with at least: .date (str|None), .location.lat, .location.lng
-    """
     if pano_id in _meta_cache:
         return _meta_cache[pano_id]
 
@@ -78,36 +63,26 @@ def fetch_meta(pano_id: str):
         ).json()
         loc = raw.get("location") or {}
         return SimpleNamespace(
-            date=raw.get("date"),  # may be None
-            location=SimpleNamespace(
-                lat=loc.get("lat"),
-                lng=loc.get("lng"),
-            )
+            date=raw.get("date"),
+            location=SimpleNamespace(lat=loc.get("lat"), lng=loc.get("lng"))
         )
 
     try:
         meta = get_panorama_meta(pano_id=pano_id, api_key=GOOGLE_API_KEY)
-        # If library returns object but without a date, use fallback to try to fill it.
         if getattr(meta, "date", None) in (None, ""):
             fb = _fallback_from_google(pano_id)
-            # keep lib object if it has more fields; just patch date if fallback has it
             if fb.date:
                 try:
                     setattr(meta, "date", fb.date)
                 except Exception:
                     meta = fb
     except (ValidationError, Exception):
-        # Validation or transport error -> fallback
         meta = _fallback_from_google(pano_id)
 
     _meta_cache[pano_id] = meta
     return meta
 
 def _parse_pano_date(ds) -> datetime.date | None:
-    """
-    Parse Street View date strings into a date (month precision).
-    Accepts datetime.date and returns first-of-month.
-    """
     if isinstance(ds, datetime.date):
         return ds.replace(day=1)
     if not ds:
@@ -122,11 +97,6 @@ def _parse_pano_date(ds) -> datetime.date | None:
 
 # ------------------- pano selection (JS path) -------------------
 def _find_best_panorama_via_js(coordinates: str, target_date: str, tolerance_m: float = 5.0):
-    """
-    Ask Node /find-outdoor-js (Puppeteer + Maps JS with StreetViewSource.OUTDOOR)
-    to choose the pano on/before target_date. Returns (pano_stub, meta_stub)
-    matching the shapes used by the core picker.
-    """
     if not SV_OUTDOOR_ENDPOINT:
         raise RuntimeError("SV_OUTDOOR_ENDPOINT not set")
 
@@ -137,8 +107,8 @@ def _find_best_panorama_via_js(coordinates: str, target_date: str, tolerance_m: 
             json={
                 "lat": lat,
                 "lng": lon,
-                "target_date": target_date,                 # "YYYY-MM" or "YYYY-MM-DD"
-                "radius": max(50, int(tolerance_m) + 50),   # seed radius similar to JS helper
+                "target_date": target_date,
+                "radius": max(50, int(tolerance_m) + 50),
                 "tolerance_m": int(tolerance_m),
                 "max_hops": 3
             },
@@ -147,7 +117,8 @@ def _find_best_panorama_via_js(coordinates: str, target_date: str, tolerance_m: 
         resp.raise_for_status()
         body = resp.json()
         if not body.get("ok"):
-            raise RuntimeError(body.get("error", "No outdoor pano on/before target_date"))
+            # Normalize message so the app can detect it consistently
+            raise RuntimeError(f"No panoramas on or before {target_date} (outdoor)")
         p = body["pano"]  # {pano_id, date, lat, lng}
 
         pano = SimpleNamespace(pano_id=p["pano_id"])
@@ -157,24 +128,20 @@ def _find_best_panorama_via_js(coordinates: str, target_date: str, tolerance_m: 
         )
         return pano, meta
     except Exception as e:
-        raise RuntimeError(f"JS OUTDOOR pano lookup failed: {e}")
+        s = str(e).lower()
+        if ("no outdoor pano on/before" in s) or ("no panoramas on or before" in s):
+            # Re-raise normalized version
+            raise RuntimeError(f"No panoramas on or before {target_date} (outdoor)")
+        raise
 
 # ------------------- pano selection (core Python path) -------------------
 def _find_best_panorama_core(coordinates: str, target_date: str, tolerance_m: float = 5.0):
-    """
-    Your original Python-only selection:
-      1) Filter panos to date <= target_date
-      2) Take all candidates within `tolerance_m` of nearest distance
-      3) Pick newest among those
-    Note: This path does NOT enforce "outdoor" and may pick indoor imagery.
-    """
     user_dt = datetime.date.fromisoformat(target_date)
     lat, lon = map(float, coordinates.split(","))
     panos = search_panoramas(lat=lat, lon=lon)
 
     candidates = []
     for p in panos:
-        # Prefer the quick date on the search result; fall back to meta
         ds = getattr(p, "date", None) or getattr(fetch_meta(p.pano_id), "date", None)
         dt = _parse_pano_date(ds)
         if not dt or dt > user_dt:
@@ -192,12 +159,9 @@ def _find_best_panorama_core(coordinates: str, target_date: str, tolerance_m: fl
     if not candidates:
         raise RuntimeError(f"No panoramas on or before {target_date}")
 
-    # distance asc, then date desc
     candidates.sort(key=lambda x: (x[1], -x[0].toordinal()))
-
     nearest_dist = candidates[0][1]
     close_enough = [c for c in candidates if (c[1] - nearest_dist) <= tolerance_m]
-
     best = max(close_enough, key=lambda x: x[0].toordinal())
     _best_dt, _best_dist, best_pano, best_meta = best
     return best_pano, best_meta
@@ -217,7 +181,6 @@ def _find_best_panorama(coordinates: str, target_date: str, tolerance_m: float =
         print("[SV] using core Python picker")
     return _find_best_panorama_core(coordinates, target_date, tolerance_m)
 
-
 # ------------------- image fetch -------------------
 def _fetch_image_bytes(pano_id: str, width: int, height: int, heading: int, pitch: int, fov: int) -> bytes:
     pil_img = get_streetview(
@@ -235,8 +198,7 @@ def _fetch_image_bytes(pano_id: str, width: int, height: int, heading: int, pitc
     buf.close()
     return data
 
-# ------------------- public API (unchanged signatures) -------------------
-
+# ------------------- public API -------------------
 def getStreetViewByDate(
     coordinates: str,
     target_date: str,
@@ -253,7 +215,7 @@ def getStreetViewByDate(
     mlat = getattr(getattr(meta, "location", SimpleNamespace()), "lat", None)
     mlng = getattr(getattr(meta, "location", SimpleNamespace()), "lng", None)
 
-    # NEW: compute distance (camera pano position → requested address coords)
+    # distance (camera pano position → requested address coords)
     try:
         addr_lat, addr_lng = map(float, coordinates.split(","))
         distance_m = haversine(addr_lat, addr_lng, float(mlat), float(mlng)) if (mlat is not None and mlng is not None) else None
@@ -272,10 +234,9 @@ def getStreetViewByDate(
         "height": height,
         "size": f"{width}x{height}",
         "location": coordinates,
-        "distance_m": distance_m,     # ← NEW
+        "distance_m": distance_m,
     }
     return [img], [metadata]
-
 
 def getPanoramaByDateTiles(
     coordinates: str,
@@ -341,7 +302,7 @@ def getStreetViewOfBuilding(
         "fov": fov,
         "size": f"{width}x{height}",
         "location": building_coords,
-        "distance_m": distance_m,     # ← NEW
+        "distance_m": distance_m,
     }
     return [img], [metadata]
 
@@ -350,14 +311,10 @@ def getStreetView(
     target_date: str,
     mode: str,
     tolerance_m: int,
-     width:int,
-    height:int,
-
+    width: int,
+    height: int,
     **kwargs
 ):
-    """
-    Unified entry: mode="building" or "surrounding".
-    """
     if mode == PerspectiveMode.SURROUNDING.value:
-        return getPanoramaByDateTiles(coordinates, target_date, tolerance_m,width,height, **kwargs)
-    return getStreetViewOfBuilding(coordinates, target_date, tolerance_m,width,height, **kwargs)
+        return getPanoramaByDateTiles(coordinates, target_date, tolerance_m, width, height, **kwargs)
+    return getStreetViewOfBuilding(coordinates, target_date, tolerance_m, width, height, **kwargs)

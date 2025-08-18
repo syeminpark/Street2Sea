@@ -135,8 +135,8 @@ class BrightSpinArrowsStyle(QProxyStyle):
 
 class AddressFormUI(QWidget):
     def __init__(self):
-        self.boxWidth = 512
-        self.boxHeight = 512
+        self.boxWidth = 300
+        self.boxHeight = 300
         super().__init__()
 
         QApplication.setStyle(QStyleFactory.create("Fusion"))

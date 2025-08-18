@@ -195,8 +195,9 @@ class AddressForm(AddressFormUI):
             'depth_override_value': float(self.depth_override_spin.value()),
         }
         self.submit_btn.setEnabled(False)
+        self.connector.reset(quiet=True)  # <— quiet reset (static lines)
         self.data_submitted.emit(payload)
-        self.connector.reset()
+        
 
     # ---------- Cesium embedding ----------
     def ensure_map_started(self):

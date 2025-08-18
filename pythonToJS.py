@@ -183,3 +183,15 @@ def wait_for_ready(min_clients: int = 1, min_ready: int = 1, timeout_sec: float 
         return r.ok and r.json().get("ok", False)
     except Exception:
         return False
+    
+
+def _wait_and_send(API_URL, bus, payload, label="payload"):
+    ok = wait_for_ready(min_clients=1, min_ready=1, timeout_sec=30)
+    if ok:
+        bus.progress.emit(f"✅ Viewer ready; sending {label}.")
+    else:
+        bus.progress.emit(f"⚠ Viewer not ready; sending {label} anyway (may be missed without replay).")
+    try:
+        sendToNode(payload, API_URL)
+    except Exception as e:
+        bus.progress.emit(f"POST failed for {label}: {e}")
