@@ -120,15 +120,15 @@ def handle_form(data):
             height=640,
         )
         saved = save_images(tiles)
-        w.set_street_images(tiles, metas)
-        
-        w.ensure_map_started()
         ACTIVE_UUIDS.clear()
 
         for meta, s in zip(metas, saved):
             meta["type"] = "camera"
             meta["uuid"] = s["uuid"]
             ACTIVE_UUIDS.add(s["uuid"])
+
+        w.set_street_images(tiles, metas)
+        w.ensure_map_started()
         sendToNode(metas, API_URL)
 
 

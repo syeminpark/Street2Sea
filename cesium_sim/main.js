@@ -29,6 +29,8 @@ const HALF_SIZE_METERS     = 100;    // half-width of the local water box
     geocoder: false,
     homeButton: false,
     sceneModePicker: false,
+      infoBox: false,    
+       selectionIndicator: false,   // ⬅️ disable green selection target
     navigationHelpButton: false,
     contextOptions: { webgl: { preserveDrawingBuffer: true } }
   });
@@ -39,7 +41,8 @@ const HALF_SIZE_METERS     = 100;    // half-width of the local water box
   viewer.scene.fxaa = false;
   viewer.scene.pickTranslucentDepth = true;
   viewer.scene.useDepthPicking = true;
-  
+  viewer.screenSpaceEventHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_CLICK);
+viewer.screenSpaceEventHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 
   const ctx = viewer.scene.context;
   console.log('depthTexture support:', !!ctx.depthTexture);

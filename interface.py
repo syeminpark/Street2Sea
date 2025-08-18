@@ -4,7 +4,7 @@ import json
 from PyQt5.QtCore import QUrl, pyqtSignal, Qt, QSize, QEvent
 from PyQt5.QtGui import QPixmap, QKeySequence
 from PyQt5.QtWidgets import (
-    QWidget, QSizePolicy, QToolButton, QStyle, QShortcut, QApplication, QVBoxLayout, QSizePolicy
+    QWidget, QSizePolicy, QToolButton, QStyle, QShortcut, QApplication, QVBoxLayout
 )
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
 
@@ -14,13 +14,40 @@ from cesiumViewer import CesiumViewer
 from imageViewer import ImageViewerDialog
 from connector_overlay import ConnectorOverlay
 
+from pathlib import Path
+
+class ClickCatcher(QWidget):
+    hovered = pyqtSignal(bool)
+    clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setMouseTracking(True)
+
+    def paintEvent(self, _):  # invisible
+        pass
+
+    def enterEvent(self, _):
+        self.hovered.emit(True)
+
+    def leaveEvent(self, _):
+        self.hovered.emit(False)
+
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(ev)
+
 
 class AddressForm(AddressFormUI):
     data_submitted = pyqtSignal(dict)
 
     def __init__(self):
         super().__init__()
-        self._streetview_size = QSize(self.boxWidth, self.boxHeight)
+        # Track both content-sized pixmap fit and the label's OUTER size (for the map)
+        self._streetview_outer_size = QSize(self.boxWidth, self.boxHeight)
 
         # image navigation state
         self.street_images = []
@@ -84,14 +111,30 @@ class AddressForm(AddressFormUI):
         self.img1_label.clicked.connect(lambda: self._open_viewer(self._current_street_pix, "Street-View"))
         self.img2_label.clicked.connect(lambda: self._open_viewer(self._current_ai_pix, "AI-Generated"))
 
-        # connector overlay (top-level window that sits above QWebEngineView)
+        # connector overlay (top-level window above QWebEngineView)
         self.connector = ConnectorOverlay(self)
-        # initially connect to the placeholder in the middle
         self.connector.set_widgets(self.img1_label, self.cesium_media_frame, self.img2_label)
 
         self.prefecture.textChanged.connect(self.update_submit_state)
         self.city.textChanged.connect(self.update_submit_state)
         self.town.textChanged.connect(self.update_submit_state)
+
+        self.current_uuid = None  # track which image/uuid is active
+
+        self.cesium_media_frame.installEventFilter(self)
+        self.cesium_media_frame.setCursor(Qt.PointingHandCursor)
+        self.cesium_media_frame.setAttribute(Qt.WA_Hover, True)
+        self.cesium_media_frame.setMouseTracking(True)
+
+        self.cesium_placeholder.installEventFilter(self)
+        self.cesium_placeholder.setCursor(Qt.PointingHandCursor)
+        self.cesium_placeholder.setAttribute(Qt.WA_Hover, True)
+        self.cesium_placeholder.setMouseTracking(True)
+
+        self.cesium_viewer.setCursor(Qt.PointingHandCursor)
+        self.cesium_viewer.hoverChanged.connect(self._set_cesium_hover)
+        self.cesium_viewer.leftClicked.connect(self._open_mask_for_current_uuid)
+        self.cesium_viewer.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
     # ---------- enable submit when minimal fields present ----------
     def update_submit_state(self):
@@ -99,7 +142,6 @@ class AddressForm(AddressFormUI):
         has_addr2 = bool(self.address2.text().strip())
         has_core   = all(f.text().strip() for f in (self.prefecture, self.city, self.town))
         self.submit_btn.setEnabled(has_postal and has_addr2 and has_core)
-
 
     # ---------- postal lookup ----------
     def lookup_postal(self):
@@ -128,10 +170,6 @@ class AddressForm(AddressFormUI):
         self.log.append(f"Address found: {r['address1']} {r['address2']} {r['address3']}")
         self.update_submit_state()
 
-
-
-
-
     # ---------- submit ----------
     def _on_submit(self):
         mode = (
@@ -157,7 +195,6 @@ class AddressForm(AddressFormUI):
         }
         self.submit_btn.setEnabled(False)
         self.data_submitted.emit(payload)
-        # reset connector states each run
         self.connector.reset()
 
     # ---------- Cesium embedding ----------
@@ -165,10 +202,8 @@ class AddressForm(AddressFormUI):
         if getattr(self, "_map_initialized", False):
             return
 
-        # We now host the viewer inside the media frame (same as other cards)
         container = getattr(self, "cesium_media_frame", None)
         if container is None:
-            # safety fallback
             container = getattr(self.cesium_panel, "body", self.cesium_panel)
 
         layout = container.layout()
@@ -177,7 +212,6 @@ class AddressForm(AddressFormUI):
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(0)
 
-        # Placeholder must live in the same container we replace in
         if self.cesium_placeholder.parent() is not container:
             self.cesium_placeholder.setParent(container)
 
@@ -185,22 +219,36 @@ class AddressForm(AddressFormUI):
         self.cesium_placeholder.hide()
         self.cesium_viewer.show()
 
-        # Size to match Street-View for visual parity
-        s = self._streetview_size
-        container.setFixedSize(s)                # frame (border box)
-        self.cesium_viewer.setFixedSize(s)       # viewer inside the frame
-        self.cesium_viewer.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.cesium_viewer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        # Invisible layer ABOVE the viewer
+        self._cesium_click_layer = ClickCatcher(container)
+        self._cesium_click_layer.setGeometry(container.rect())
+        self._cesium_click_layer.hovered.connect(self._set_cesium_hover)
+        self._cesium_click_layer.clicked.connect(self._open_mask_for_current_uuid)
+        self._cesium_click_layer.raise_()
 
         self._map_initialized = True
 
         self.connector.set_widgets(self.img1_label, self.cesium_media_frame, self.img2_label)
         self.connector.update()
 
+        # Size the Cesium frame to MATCH the Street-View label's OUTER size
+        self._update_cesium_frame_size()
+
         layout.invalidate()
         layout.activate()
         QApplication.processEvents()
 
-
+    def _update_cesium_frame_size(self):
+        """Make the middle (Cesium) card exactly the same outer size as the Street-View label."""
+        if not hasattr(self, "cesium_media_frame"):
+            return
+        outer = getattr(self, "_streetview_outer_size", self.img1_label.size())
+        if outer.width() > 0 and outer.height() > 0:
+            self.cesium_media_frame.setFixedSize(outer)
+            if hasattr(self, "_cesium_click_layer") and self._cesium_click_layer:
+                self._cesium_click_layer.setGeometry(self.cesium_media_frame.rect())
 
     # ---------- images ----------
     def set_street_images(self, images, metadata):
@@ -219,29 +267,28 @@ class AddressForm(AddressFormUI):
         self.next_btn.setEnabled(count > 1)
         self._position_nav_buttons()
 
-        # update cesium size if already placed
+        # keep Cesium the same visible size as Street-View
         if getattr(self, "_map_initialized", False):
-            s = self._streetview_size
-            if hasattr(self, "cesium_media_frame"):
-                self.cesium_media_frame.setFixedSize(s)
-            self.cesium_viewer.setFixedSize(s)
+            self._update_cesium_frame_size()
 
     def _show_current_street(self):
         img_bytes = self.street_images[self.current_street_index]
         pix = QPixmap()
         if pix.loadFromData(img_bytes):
             self._current_street_pix = pix
-            scaled = pix.scaled(
-                self.img1_label.size(),
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
-            )
-            self.img1_label.setPixmap(scaled)
-            self.img1_label.setFixedSize(scaled.size())
-            # remember the real on-screen size
-            self._streetview_size = scaled.size()
+            target = self.img1_label.contentsRect().size()
+            if target.width() > 0 and target.height() > 0:
+                scaled = pix.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self.img1_label.setPixmap(scaled)
+
+            # OUTER size drives Cesium frame size
+            self._streetview_outer_size = self.img1_label.size()
+            if getattr(self, "_map_initialized", False):
+                self._update_cesium_frame_size()
 
             meta = self.street_meta[self.current_street_index]
+            self.current_uuid = meta.get("uuid", getattr(self, "current_uuid", None))
+
             meta_text = ', '.join(f"{k}: {v}" for k, v in meta.items())
             idx = self.current_street_index + 1
             total = len(self.street_images)
@@ -267,7 +314,6 @@ class AddressForm(AddressFormUI):
         self._position_nav_buttons()
 
     def _position_nav_buttons(self):
-        # center vertically; 8px margin from the left/right edge
         s = 36
         w = self.img1_label.width()
         h = self.img1_label.height()
@@ -276,21 +322,64 @@ class AddressForm(AddressFormUI):
         self.next_btn.move(max(8, w - s - 8), y)
 
     def eventFilter(self, obj, ev):
+        # Re-fit Street-View pixmap and sync Cesium size whenever label resizes/shows
         if obj is self.img1_label and ev.type() in (QEvent.Resize, QEvent.Show):
+            if not self._current_street_pix.isNull():
+                target = self.img1_label.contentsRect().size()
+                if target.width() > 0 and target.height() > 0:
+                    self.img1_label.setPixmap(
+                        self._current_street_pix.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    )
+            # update OUTER size and apply to Cesium
+            self._streetview_outer_size = self.img1_label.size()
+            if getattr(self, "_map_initialized", False):
+                self._update_cesium_frame_size()
             self._position_nav_buttons()
+
+        if obj is self.img2_label and ev.type() in (QEvent.Resize, QEvent.Show):
+            if not self._current_ai_pix.isNull():
+                target = self.img2_label.contentsRect().size()
+                if target.width() > 0 and target.height() > 0:
+                    self.img2_label.setPixmap(
+                        self._current_ai_pix.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    )
+
+        # keep click layer covering the frame
+        if obj is self.cesium_media_frame and ev.type() in (QEvent.Resize, QEvent.Show, QEvent.Move):
+            if hasattr(self, "_cesium_click_layer") and self._cesium_click_layer:
+                self._cesium_click_layer.setGeometry(self.cesium_media_frame.rect())
+
+        # hover/click handling for frame/placeholder
+        if obj in (self.cesium_media_frame, self.cesium_placeholder):
+            if ev.type() in (QEvent.Enter, QEvent.HoverEnter, QEvent.HoverMove):
+                self._set_cesium_hover(True)
+            elif ev.type() in (QEvent.Leave, QEvent.HoverLeave):
+                self._set_cesium_hover(False)
+            elif ev.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease):
+                if getattr(ev, "button", lambda: None)() == Qt.LeftButton:
+                    self._open_mask_for_current_uuid()
+                    return True
+
         return super().eventFilter(obj, ev)
+
+    def _set_cesium_hover(self, on: bool):
+        f = self.cesium_media_frame
+        if f.property("hover") == on:
+            return
+        f.setProperty("hover", on)
+        f.style().unpolish(f)
+        f.style().polish(f)
+        f.update()
 
     # ---------- AI image ----------
     def display_ai_image(self, img_bytes: bytes):
         pix = QPixmap()
         if pix.loadFromData(img_bytes):
             self._current_ai_pix = pix
-            scaled = pix.scaled(
-                self.img2_label.size(),
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
-            )
-            self.img2_label.setPixmap(scaled)
+            target = self.img2_label.contentsRect().size()
+            if target.width() > 0 and target.height() > 0:
+                scaled = pix.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self.img2_label.setPixmap(scaled)
             self.log.append("✔ AI-generated image displayed.")
             self.connector.set_ai_ready(True)
         else:
@@ -308,3 +397,29 @@ class AddressForm(AddressFormUI):
     # ---------- connector hooks ----------
     def on_tiles_ready(self):
         self.connector.set_tiles_ready(True)
+
+    def _open_mask_for_current_uuid(self):
+        uuid = getattr(self, "current_uuid", None)
+        if not uuid:
+            self.log.append("⚠ No UUID yet for this view. Submit first.")
+            return
+
+        base = Path("images")
+        candidates = [
+            base / f"{uuid}_underwater_mask.png",
+            base / f"{uuid}_overwater_mask.png",
+        ]
+
+        for p in candidates:
+            if p.exists():
+                pix = QPixmap(str(p))
+                if pix.isNull():
+                    self.log.append(f"⚠ Failed to load mask: {p.name}")
+                    return
+                title = "Mask (underwater)" if "underwater" in p.name else "Mask (overwater)"
+                dlg = ImageViewerDialog(title, self)
+                dlg.set_pixmap(pix)
+                dlg.exec_()
+                return
+
+        self.log.append("⚠ Mask not found yet for this view (still generating?).")
