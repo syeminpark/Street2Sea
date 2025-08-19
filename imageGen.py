@@ -90,7 +90,7 @@ PROFILES = {
         ),
 
         "mask_blur": 1, "inpainting_fill": 0, "inpaint_full_res": False,
-        "inpaint_padding": 32, "invert_mask": 1,
+        "inpaint_padding": 32, "invert_mask": 0,
 
         "soft_inpaint": None,             # keep soft inpaint off for overwater
 
