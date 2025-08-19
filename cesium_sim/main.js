@@ -192,7 +192,7 @@ const rect = rectFromCenterMeters_ENU(buildingLon, buildingLat, HALF_SIZE_METERS
       
       if (needMask) {
         await withOverlayHidden(viewer,waterEntity,markerEntity, async () => {
-          if (floodHeight > viewer.camera.positionCartographic.height) {
+          if (floodHeight > viewer.camera.positionCartographic.height ) {
             await captureAndSendSubmergedInpaintMask(viewer, {
                rect,
                waterLevelUp: floodHeight,

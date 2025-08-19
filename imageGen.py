@@ -22,30 +22,26 @@ CNXL_CANNY   = os.getenv("CNXL_CANNY",   "controlnetxlCNXL_bdsqlszCanny [a74daa4
 # ----------------- Profiles -----------------
 PROFILES = {
     "underwater": {
-          "seed": 595415233, 
-        "steps": 25, "cfg": 6.0, "denoise": 0.63,
+         "seed": 1247747134,
+        "steps": 50, "cfg": 10, "denoise": 0.5,
         "sampler": "DPM++ 3M SDE", "scheduler": "Karras", "clip_skip": 1,
         "refiner_switch_at": 0.90,
         "target_wh": (1024, 1024),
         "prompt": (
-            "underwater shot, underwater surface seen from below, flat flood water surface, refracted sunlight, "
-            "soft god rays from above, dancing caustics on the shallow flood water, physics, subtle foam along edges, "
-            "photorealistic, high detail, natural flood water colors, aquatic, serene"
+            "looking at the flood surface from underwater, sharp horizontal waterline, visible snell’s window, underwater photography, shallow clear flood water,  refracted sunlight, soft god rays from above, photorealistic, highly detailed, aquatic, serene, blurry"
         ),
         "negative": (
-            "sky, horizon, surface seen from above, shoreline, boat, people, fish, plants, text, logo, watermark, "
-            "distortion, cloud, ceiling, whale, shark, human, animal, cell-like pattern, seaweed, jellyfish, mermaid, "
-            "coral, swimming, diving, sun, sinking, drowning, divers, rocks, seabed, abstract, land, hectic, baby"
+            "sun, sky, horizon, surface seen from above, shoreline, boat, people, fish, plants, text, logo, watermark, stone, rock, cloud, ceiling, whale, shark, human, animal, cell-like pattern, seaweed, jellyfish, mermaid, coral, swimming, diving, sinking, drowning, divers, seabed, abstract, land, hectic, baby, grass, forest, roof, "
         ),
-        "mask_blur": 1, "inpainting_fill": 3, "inpaint_full_res": False, "inpaint_padding": 32, "invert_mask": 0,
+        "mask_blur": 1, "inpainting_fill": 0, "inpaint_full_res": False, "inpaint_padding": 32, "invert_mask": 0,
         "soft_inpaint": {
     "enabled": True,
     "schedule_bias": 0.8,
-    "preserve_strength": 1.2,
+    "preserve_strength": 1,
     "transition_boost": 2.5,
-    "mask_influence": 0.7, 
+    "mask_influence": 0.5, 
     "diff_threshold": 1.0,
-    "diff_contrast": 8.0,
+    "diff_contrast": 5.0,
 
 },
         "controlnet": {
@@ -56,7 +52,7 @@ PROFILES = {
                     "enabled": True,
                     "module": "depth_leres++",
                     "model": CNXL_DEPTH,
-                    "weight": 0.30,
+                    "weight": 0.4,
                     "guidance_start": 0.0,
                     "guidance_end": 0.8,
                     "threshold_a": 0.0,
@@ -69,9 +65,9 @@ PROFILES = {
                     "enabled": True,
                     "module": "canny",
                     "model": CNXL_CANNY,
-                    "weight": 0.45,
+                    "weight": 0.5,
                     "guidance_start": 0.0,
-                    "guidance_end": 0.9,
+                    "guidance_end": 1.0,
                     "threshold_a": 100.0,
                     "threshold_b": 200.0,
                     "control_mode": 0,
@@ -94,7 +90,7 @@ PROFILES = {
         ),
 
         "mask_blur": 1, "inpainting_fill": 0, "inpaint_full_res": False,
-        "inpaint_padding": 32, "invert_mask": 0,
+        "inpaint_padding": 32, "invert_mask": 1,
 
         "soft_inpaint": None,             # keep soft inpaint off for overwater
 
