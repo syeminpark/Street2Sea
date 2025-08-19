@@ -234,7 +234,7 @@ class AddressFormUI(QWidget):
         screen = QDesktopWidget().availableGeometry(self)
         w = int(screen.width() * 0.7); h = int(screen.height() * 0.95)
         self.setMinimumSize(w, h); self.resize(w, h)
-        self.setWindowTitle("SAFE: Street-view AI Images from Forecast Simulations")
+        self.setWindowTitle("Street2Sea: Street-view-based AI Visualizations of Predicted Flood Levels to Guide Evacuation")
 
         root = QVBoxLayout(self)
 
@@ -339,7 +339,7 @@ class AddressFormUI(QWidget):
         bottom = QHBoxLayout()
         bottom.addWidget(self._make_image_panel("Street-View", "img1_label",
                                                "Google Street View for the entered address."), 0)
-        self.cesium_panel = self._make_gpu_panel("Flood Masks",
+        self.cesium_panel = self._make_gpu_panel("Flood Mask",
                                                  frame_attr_name="cesium_media_frame",
                                                  placeholder_attr_name="cesium_placeholder",
                                                  desc="3D rendered flood mask based on flood depth at the location.")
@@ -455,7 +455,7 @@ class AddressFormUI(QWidget):
     
     def _install_vertical_title(self):
         # Create the strip with your exact phrasing (can be updated later)
-        title_text = "SAFE: Street view based AI Images from Forcast simulations for Evacuation"
+        title_text = "Street2Sea: Street-view-based AI Visualizations of Predicted Flood Levels to Guide Evacuation"
         self._title_strip = VerticalTitle(title_text, self, strip_width=96)
 
         old_layout = self.layout()

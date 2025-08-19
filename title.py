@@ -66,9 +66,9 @@ class VerticalTitle(QWidget):
             area = QRect(0, 0, h, w).adjusted(pad, pad, -pad, -pad)
 
             # Content
-            main = "SAFE"
+            main = "Street2Sea"
             # If you want “Forecast”, update here:
-            rest = "Street-view based AI images from Forecast simulations for Evacuation"
+            rest = "Street-view-based AI Visualizations of Predicted Flood Levels to Guide Evacuation"
 
             # Allocate space: give the headline up to ~40% of height but we’ll fit precisely.
             safe_h_max = int(area.height() * 0.50)
