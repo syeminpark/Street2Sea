@@ -339,13 +339,13 @@ class AddressFormUI(QWidget):
         bottom = QHBoxLayout()
         bottom.addWidget(self._make_image_panel("Street-View", "img1_label",
                                                "Google Street View for the entered address."), 0)
-        self.cesium_panel = self._make_gpu_panel("Flood Map",
+        self.cesium_panel = self._make_gpu_panel("Flood Masks",
                                                  frame_attr_name="cesium_media_frame",
                                                  placeholder_attr_name="cesium_placeholder",
-                                                 desc="3D rendered flood map based on flood depth at the location.")
+                                                 desc="3D rendered flood mask based on flood depth at the location.")
         bottom.addWidget(self.cesium_panel, 0)
         bottom.addWidget(self._make_image_panel("AI-Generation", "img2_label",
-                                                "AI generated image based on flood map and street view image"), 0)
+                                                "AI generated image based on flood mask and street view image"), 0)
         root.addLayout(bottom)
 
     def _apply_styles(self):
