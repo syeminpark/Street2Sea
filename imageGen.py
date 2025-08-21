@@ -28,10 +28,10 @@ PROFILES = {
         "refiner_switch_at": 0.90,
         "target_wh": (1024, 1024),
         "prompt": (
-            "looking at the flood surface from underwater, sharp horizontal waterline, visible snell’s window, underwater photography, shallow clear flood water,  refracted sunlight, soft god rays from above, photorealistic, highly detailed, aquatic, serene, blurry"
+            "looking at the flood surface from underwater, sharp horizontal waterline, visible snell's window, underwater photography, shallow clear flood water,  refracted sunlight, soft god rays from above, photorealistic, highly detailed, aquatic, serene, blurry"
         ),
         "negative": (
-            "sun, sky, horizon, surface seen from above, shoreline, boat, people, fish, plants, text, logo, watermark, stone, rock, cloud, ceiling, whale, shark, human, animal, cell-like pattern, seaweed, jellyfish, mermaid, coral, swimming, diving, sinking, drowning, divers, seabed, abstract, land, hectic, baby, grass, forest, roof, "
+            "sun, sky, horizon, surface seen from above, shoreline, boat, people, fish, plants, text, logo, watermark, stone, rock, cloud, ceiling, whale, shark, human, animal, cell-like pattern, seaweed, jellyfish, mermaid, coral, swimming, diving, sinking, drowning, divers, seabed, abstract, land, hectic, baby, grass, forest, roof, watercolor, painting "
         ),
         "mask_blur": 1, "inpainting_fill": 0, "inpaint_full_res": False, "inpaint_padding": 32, "invert_mask": 0,
         "soft_inpaint": {
@@ -41,7 +41,7 @@ PROFILES = {
     "transition_boost": 2.5,
     "mask_influence": 0.5, 
     "diff_threshold": 1.0,
-    "diff_contrast": 5.0,
+    "diff_contrast": 8.0,
 
 },
         "controlnet": {

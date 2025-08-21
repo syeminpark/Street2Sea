@@ -135,8 +135,8 @@ class BrightSpinArrowsStyle(QProxyStyle):
 
 class AddressFormUI(QWidget):
     def __init__(self):
-        self.boxWidth = 512
-        self.boxHeight = 512
+        self.boxWidth = 350
+        self.boxHeight = 350
         super().__init__()
 
         QApplication.setStyle(QStyleFactory.create("Fusion"))
@@ -342,7 +342,7 @@ class AddressFormUI(QWidget):
         self.cesium_panel = self._make_gpu_panel("Flood Mask",
                                                  frame_attr_name="cesium_media_frame",
                                                  placeholder_attr_name="cesium_placeholder",
-                                                 desc="3D rendered flood mask based on flood depth at the location.")
+                                                 desc="Flood mask based on flood depth at the location.")
         bottom.addWidget(self.cesium_panel, 0)
         bottom.addWidget(self._make_image_panel("AI-Generation", "img2_label",
                                                 "AI generated image based on flood mask and street view image"), 0)
