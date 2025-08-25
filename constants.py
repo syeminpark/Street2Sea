@@ -23,7 +23,7 @@ class WebDirectory(Enum):
 class Fonts:
     base_pt: int = 25
     title_mult: float = 1.6
-    subtitle_mult: float = 0.8
+    subtitle_mult: float = 0.6
 
     @property
     def title_pt(self) -> int:

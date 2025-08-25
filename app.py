@@ -196,11 +196,11 @@ def _on_depth_from_worker(depth_value, dt_fetched, depth_time, resolution, packe
         w.log.append(f"Resolution: {resolution}")
     if dt_fetched:
         try:
-            # Estimate lead time relative to current form selection
-            dt_str = f"{w.date_edit.date().toString('yyyy-MM-dd')} {w.time_edit.time().toString('HH:mm')}"
-            target_naive = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
-            target_aware = target_naive.replace(tzinfo=UTC)
-            lead_td = _ensure_aware(target_aware, UTC) - _ensure_aware(dt_fetched, UTC)
+            if depth_time is not None:
+                lead_td = _ensure_aware(depth_time, UTC) - _ensure_aware(dt_fetched, UTC)
+            else:
+                # if you ever emit without depth_time (override), skip or handle separately
+                lead_td = None
             w.log.append(f"Lead time: {_human_hours(lead_td)}")
         except Exception:
             pass
