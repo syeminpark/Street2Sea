@@ -53,7 +53,7 @@ def openClosestFile(fileType, target_datetime: datetime):
     path = os.path.join(dirpath, chosen)
     print(f"✅ Opening {fileType} file closest to {target_datetime}: {chosen}")
 
-    ds = xr.open_dataset(path)
+    ds = xr.open_dataset(path, engine="netcdf4")
 
     # --- figure out the resolution --------------------------------------
     if "grid_interval" in ds.attrs:              # best-case: file tells us

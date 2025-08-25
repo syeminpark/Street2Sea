@@ -1,0 +1,10 @@
+PyQt5==5.15.11
+PyQtWebEngine==5.15.7
+pykakasi>=2.3,<3
+requests>=2.31,<3
+pillow>=10,<12
+numpy<2.3
+pandas<2.3
+xarray<2024.10
+pydantic>=2,<3
+streetview>=0.0.16,<1python-dotenv>=1,<2
